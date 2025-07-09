@@ -26,6 +26,8 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.1",
     "pg": "^8.16.3",
+    "pg-native": "^3.5.2",
+    "socket.io": "^4.8.1",
     "stripe": "^18.3.0"
   }
 }

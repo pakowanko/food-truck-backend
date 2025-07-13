@@ -4,7 +4,12 @@ const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.register = async (req, res) => {
-    const { email, password, user_type, first_name, last_name, company_name, nip, phone_number, country_code } = req.body;
+    const { 
+        email, password, user_type, first_name, last_name, company_name, nip, phone_number, country_code,
+        // Nowe pola
+        base_postal_code, cuisine_type, dietary_options, avg_price_range
+    } = req.body;
+    
     if (!email || !password || !user_type) return res.status(400).json({ message: 'Email, hasło i typ użytkownika są wymagane.' });
     
     const client = await pool.connect();
@@ -14,13 +19,26 @@ exports.register = async (req, res) => {
         if (existingUser.rows.length > 0) return res.status(409).json({ message: 'Użytkownik o tym adresie email już istnieje.' });
 
         let stripeCustomerId = null;
-        if (user_type === 'owner') {
+        if (user_type === 'owner' && process.env.STRIPE_SECRET_KEY) {
             const customer = await stripe.customers.create({ email, name: `${first_name} ${last_name}` });
             stripeCustomerId = customer.id;
         }
         const hashedPassword = await bcrypt.hash(password, 10);
-        const query = `INSERT INTO users (email, password_hash, user_type, first_name, last_name, company_name, nip, phone_number, country_code, stripe_customer_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING user_id, email, user_type`;
-        const values = [email, hashedPassword, user_type, first_name, last_name, company_name, nip, phone_number, country_code, stripeCustomerId];
+        
+        const query = `
+            INSERT INTO users (
+                email, password_hash, user_type, first_name, last_name, 
+                company_name, nip, phone_number, country_code, stripe_customer_id,
+                base_postal_code, cuisine_type, dietary_options, avg_price_range
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
+            RETURNING user_id, email, user_type`;
+            
+        const values = [
+            email, hashedPassword, user_type, first_name, last_name, 
+            company_name, nip, phone_number, country_code, stripeCustomerId,
+            base_postal_code, cuisine_type, dietary_options, avg_price_range
+        ];
+
         const newUser = await client.query(query, values);
         await client.query('COMMIT');
         res.status(201).json(newUser.rows[0]);
@@ -37,13 +55,15 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
         const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (userResult.rows.length === 0) return res.status(400).json({ message: 'Nieprawidłowy email lub hasło.' });
+        if (userResult.rows.length === 0) return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         const user = userResult.rows[0];
-        if (!user.password_hash) return res.status(400).json({ message: 'Nieprawidłowy email lub hasło.' });
         const isMatch = await bcrypt.compare(password, user.password_hash);
-        if (!isMatch) return res.status(400).json({ message: 'Nieprawidłowy email lub hasło.' });
-        const token = jwt.sign({ userId: user.user_id, role: user.user_type }, process.env.JWT_SECRET, { expiresIn: '8h' });
-        res.json({ token, userId: user.user_id, user_type: user.user_type });
+        if (!isMatch) return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
+        
+        const payload = { userId: user.user_id, user_type: user.user_type };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+        
+        res.json({ token, user: user }); // Zwracamy cały obiekt użytkownika
     } catch (error) {
         console.error('Błąd logowania:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
@@ -52,8 +72,13 @@ exports.login = async (req, res) => {
 
 exports.getProfile = async (req, res) => {
     try {
-        const userResult = await pool.query("SELECT user_id, email, user_type, first_name, last_name FROM users WHERE user_id = $1", [req.user.userId]);
-        if (userResult.rows.length === 0) return res.status(404).json({ message: "Nie znaleziono użytkownika." });
+        const userResult = await pool.query(
+            "SELECT user_id, email, user_type, first_name, last_name, company_name, nip, phone_number, base_postal_code, cuisine_type, dietary_options, avg_price_range FROM users WHERE user_id = $1", 
+            [req.user.userId]
+        );
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ message: "Nie znaleziono użytkownika." });
+        }
         res.json(userResult.rows[0]);
     } catch (err) {
         console.error("Błąd w /api/auth/profile:", err.message);

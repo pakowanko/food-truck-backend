@@ -12,7 +12,6 @@ const pool = require('./db'); // Używamy scentralizowanej puli połączeń
 
 // Import naszych modułów z trasami
 const authRoutes = require('./routes/authRoutes');
-const installerProfileRoutes = require('./routes/installerProfileRoutes'); // <--- DODANO
 const truckRoutes = require('./routes/truckRoutes');
 const reservationRoutes = require('./routes/reservationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
@@ -39,7 +38,6 @@ app.use('/uploads', express.static(uploadsDir));
 
 // Główne trasy API
 app.use('/api/auth', authRoutes);
-app.use('/api/profiles', installerProfileRoutes); // <--- DODANO
 app.use('/api/trucks', truckRoutes);
 app.use('/api/reservations', reservationRoutes);
 app.use('/api/reviews', reviewRoutes);
@@ -47,7 +45,7 @@ app.use('/api/conversations', conversationRoutes);
 
 // Główna trasa powitalna
 app.get('/', (req, res) => {
-  res.send('Backend for PV Service Platform is running!'); // Zmieniono nazwę
+  res.send('Backend for FoodTruck App is running!');
 });
 
 // Logika Socket.IO dla komunikatora

@@ -4,7 +4,7 @@ require('dotenv').config();
 // Import bibliotek
 const express = require('express');
 const http = require('http');
-const cors = require('cors'); // Upewnij się, że biblioteka jest zainstalowana: npm install cors
+const cors = require('cors'); // Upewnij się, że jest zainstalowane: npm install cors
 const { Server } = require("socket.io");
 const path = require('path');
 const fs = require('fs');
@@ -20,32 +20,28 @@ const conversationRoutes = require('./routes/conversationRoutes');
 // Inicjalizacja aplikacji
 const app = express();
 
-// ---> Konfiguracja CORS <---
-// Ustawiamy, że zezwalamy na zapytania tylko z adresu naszej aplikacji frontendowej
+// Konfiguracja CORS
 const corsOptions = {
-  origin: 'https://pakowanko-1723651322373.web.app', // WAŻNE: Wklej tutaj ID swojego projektu Firebase
+  origin: 'https://pakowanko-1723651322373.web.app', 
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
-// ---> Koniec konfiguracji CORS <---
 
+// Inne middleware
+app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
   // Konfiguracja CORS jest również potrzebna dla Socket.IO
   cors: { 
-    origin: "https://TWOJ-PROJEKT-ID.web.app", // WAŻNE: Użyj tego samego ID projektu
+    origin: "https://ID-TWOJEGO-PROJEKTU.web.app",
     methods: ["GET", "POST"]
   }
 });
 
-// Używamy portu podanego przez środowisko (np. Cloud Run) lub 3000 lokalnie
 const PORT = process.env.PORT || 8080;
 
-// Middleware
-app.use(express.json());
-
-// Konfiguracja dla wgrywanych plików (uploads)
+// Konfiguracja dla wgrywanych plików (uploads) - na razie zostawiamy, ale docelowo przejdziemy na Cloud Storage
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));

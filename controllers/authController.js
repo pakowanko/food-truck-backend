@@ -1,15 +1,12 @@
-// controllers/authController.js
 const pool = require('../db');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const jwt =require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// --- REJESTRACJA UŻYTKOWNIKA ---
 exports.register = async (req, res) => {
     const { 
-        email, password, user_type, first_name, last_name, 
-        company_name, nip, phone_number, country_code,
-        // Nowe, szczegółowe pola z formularza
+        email, password, user_type, first_name, last_name, company_name, nip, phone_number, country_code,
+        // Nowe pola specyficzne dla właściciela
         base_postal_code, cuisine_type, dietary_options, beverages
     } = req.body;
     
@@ -27,23 +24,16 @@ exports.register = async (req, res) => {
         }
 
         let stripeCustomerId = null;
-        // Tworzymy klienta w Stripe tylko jeśli jest to właściciel i klucz API jest dostępny
         if (user_type === 'owner' && process.env.STRIPE_SECRET_KEY) {
-            const customer = await stripe.customers.create({
-                email: email, 
-                name: `${first_name} ${last_name}`,
-                phone: phone_number,
-                metadata: {
-                    company_name: company_name,
-                    nip: nip
-                }
+            const customer = await stripe.customers.create({ 
+                email, 
+                name: `${first_name} ${last_name}` 
             });
             stripeCustomerId = customer.id;
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // Zapytanie uwzględniające wszystkie nowe kolumny
         const query = `
             INSERT INTO users (
                 email, password_hash, user_type, first_name, last_name, 
@@ -71,7 +61,6 @@ exports.register = async (req, res) => {
     }
 };
 
-// --- LOGOWANIE UŻYTKOWNIKA ---
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -79,22 +68,17 @@ exports.login = async (req, res) => {
         if (userResult.rows.length === 0) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
-
+        
         const user = userResult.rows[0];
         const isMatch = await bcrypt.compare(password, user.password_hash);
         if (!isMatch) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
         
-        const payload = { 
-            userId: user.user_id, 
-            user_type: user.user_type 
-        };
+        const payload = { userId: user.user_id, user_type: user.user_type };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
         
-        // Usuwamy hasło z obiektu przed odesłaniem go do frontendu
         delete user.password_hash;
-        
         res.json({ token, user: user });
     } catch (error) {
         console.error('Błąd logowania:', error);
@@ -102,19 +86,22 @@ exports.login = async (req, res) => {
     }
 };
 
-// --- POBIERANIE PROFILU ZALOGOWANEGO UŻYTKOWNIKA ---
 exports.getProfile = async (req, res) => {
     try {
-        // Pobieramy wszystkie potrzebne dane zalogowanego użytkownika
+        // req.user jest dodawany przez middleware `authenticateToken`
         const userResult = await pool.query(
-            "SELECT user_id, email, user_type, first_name, last_name, company_name, nip, phone_number, base_postal_code, cuisine_type, dietary_options, beverages FROM users WHERE user_id = $1", 
+            "SELECT * FROM users WHERE user_id = $1", 
             [req.user.userId]
         );
 
         if (userResult.rows.length === 0) {
             return res.status(404).json({ message: "Nie znaleziono użytkownika." });
         }
-        res.json(userResult.rows[0]);
+
+        const user = userResult.rows[0];
+        delete user.password_hash; // Zawsze usuwaj hasło przed wysłaniem!
+        
+        res.json(user);
     } catch (err) {
         console.error("Błąd w /api/auth/profile:", err.message);
         res.status(500).json({ message: "Błąd serwera" });

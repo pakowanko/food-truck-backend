@@ -1,13 +1,17 @@
+// controllers/authController.js
 const pool = require('../db');
 const bcrypt = require('bcryptjs');
-const jwt =require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// --- REJESTRACJA UŻYTKOWNIKA ---
 exports.register = async (req, res) => {
+    // Pobieramy WSZYSTKIE dane z formularza
     const { 
-        email, password, user_type, first_name, last_name, company_name, nip, phone_number, country_code,
+        email, password, user_type, first_name, last_name, 
+        company_name, nip, phone_number,
         // Nowe pola specyficzne dla właściciela
-        base_postal_code, cuisine_type, dietary_options, beverages
+        base_postal_code, cuisine_type, dietary_options, beverages 
     } = req.body;
     
     if (!email || !password || !user_type) {
@@ -34,6 +38,7 @@ exports.register = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         
+        // Kompletne zapytanie INSERT, które uwzględnia wszystkie nowe kolumny
         const query = `
             INSERT INTO users (
                 email, password_hash, user_type, first_name, last_name, 
@@ -44,7 +49,7 @@ exports.register = async (req, res) => {
             
         const values = [
             email, hashedPassword, user_type, first_name, last_name, 
-            company_name, nip, phone_number, country_code, stripeCustomerId,
+            company_name, nip, phone_number, 'PL', stripeCustomerId,
             base_postal_code, cuisine_type, dietary_options, beverages
         ];
 
@@ -61,6 +66,7 @@ exports.register = async (req, res) => {
     }
 };
 
+// --- LOGOWANIE UŻYTKOWNIKA ---
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -86,6 +92,7 @@ exports.login = async (req, res) => {
     }
 };
 
+// --- POBIERANIE PROFILU ZALOGOWANEGO UŻYTKOWNIKA ---
 exports.getProfile = async (req, res) => {
     try {
         // req.user jest dodawany przez middleware `authenticateToken`

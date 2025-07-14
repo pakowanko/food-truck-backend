@@ -1,14 +1,13 @@
 // db.js
 const { Pool } = require('pg');
 
-console.log('Łączenie z bazą danych przez parametry...');
+console.log('Łączenie z bazą danych przez DATABASE_URL z SSL...');
 
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: 5432,
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 module.exports = pool;

@@ -1,20 +1,17 @@
 // controllers/authController.js
 const pool = require('../db');
 const bcrypt = require('bcryptjs');
-const jwt =require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// --- REJESTRACJA UŻYTKOWNIKA ---
+// Funkcja rejestracji, która tworzy tylko podstawowego użytkownika
 exports.register = async (req, res) => {
-    // ZMIANA: Zaktualizowano pola, dodano obiekt 'offer'
     const { 
         email, password, user_type, first_name, last_name, 
-        company_name, nip, phone_number, country_code,
-        base_location, operation_radius_km, 
-        offer // Nowy obiekt zawierający szczegóły oferty
+        company_name, nip, phone_number, country_code
     } = req.body;
 
-    if (!email || !password || !user_type || !country_code) {
+    if (!email || !password || !user_type) {
         return res.status(400).json({ message: 'Podstawowe pola są wymagane.' });
     }
     const client = await pool.connect();
@@ -39,20 +36,16 @@ exports.register = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // ZMIANA: Zaktualizowano zapytanie INSERT o kolumnę 'offer' typu JSONB
         const query = `
             INSERT INTO users (
                 email, password_hash, user_type, first_name, last_name, 
-                company_name, nip, phone_number, country_code, stripe_customer_id,
-                base_location, operation_radius_km, offer
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) 
+                company_name, nip, phone_number, country_code, stripe_customer_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
             RETURNING user_id, email, user_type`;
             
         const values = [
             email, hashedPassword, user_type, first_name, last_name, 
-            company_name, nip, phone_number, country_code, stripeCustomerId,
-            base_location, operation_radius_km, 
-            offer // Przekazujemy cały obiekt
+            company_name, nip, phone_number, country_code, stripeCustomerId
         ];
         
         const newUser = await client.query(query, values);
@@ -69,9 +62,8 @@ exports.register = async (req, res) => {
     }
 };
 
-// --- LOGOWANIE UŻYTKOWNIKA (BEZ ZMIAN) ---
+// Funkcja logowania (bez zmian)
 exports.login = async (req, res) => {
-    // ... (kod bez zmian)
     const { email, password } = req.body;
     const client = await pool.connect();
     try {
@@ -99,7 +91,8 @@ exports.login = async (req, res) => {
             token,
             userId: user.user_id,
             email: user.email,
-            user_type: user.user_type
+            user_type: user.user_type,
+            company_name: user.company_name // Dodajemy company_name do odpowiedzi
         });
 
     } catch (error) {
@@ -110,14 +103,12 @@ exports.login = async (req, res) => {
     }
 };
 
-
-// --- POBIERANIE PROFILU ZALOGOWANEGO UŻYTKOWNIKA ---
+// Funkcja pobierania podstawowych danych zalogowanego użytkownika (poprawiona)
 exports.getProfile = async (req, res) => {
     try {
-        // ZMIANA: Zaktualizowano zapytanie SELECT o nową kolumnę 'offer'
         const query = `
             SELECT user_id, email, user_type, first_name, last_name, 
-                   company_name, nip, phone_number, base_location, operation_radius_km, offer
+                   company_name, nip, phone_number, country_code
             FROM users 
             WHERE user_id = $1
         `;

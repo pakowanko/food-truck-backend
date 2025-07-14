@@ -39,12 +39,12 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));
 
-// PRZYWRACAMY prefixy '/api'
-app.use('/api/auth', authRoutes);
-app.use('/api/profiles', foodTruckProfileRoutes);
-app.use('/api/requests', bookingRequestRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/conversations', conversationRoutes);
+// OSTATECZNA POPRAWKA: Usuwamy prefix '/api'.
+app.use('/auth', authRoutes);
+app.use('/profiles', foodTruckProfileRoutes);
+app.use('/requests', bookingRequestRoutes);
+app.use('/reviews', reviewRoutes);
+app.use('/conversations', conversationRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');

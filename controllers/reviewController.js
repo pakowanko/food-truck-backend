@@ -1,8 +1,8 @@
 // controllers/reviewController.js
 const pool = require('../db');
 
-## Pobieranie opinii dla profilu
-// ZMIANA: Zapytanie odwołuje się do 'organizer_id' zamiast 'client_id'
+// POPRAWKA: Zmieniono nieprawidłowy komentarz '##' na '//'
+// Pobieranie opinii dla profilu
 exports.getReviewsForProfile = async (req, res) => {
     try {
         const { profileId } = req.params;
@@ -21,8 +21,8 @@ exports.getReviewsForProfile = async (req, res) => {
     }
 };
 
-## Tworzenie nowej opinii
-// ZMIANA: Cała logika dostosowana do rezerwacji food trucków
+// POPRAWKA: Zmieniono nieprawidłowy komentarz '##' na '//'
+// Tworzenie nowej opinii
 exports.createReview = async (req, res) => {
     try {
         const { request_id, rating, comment } = req.body;

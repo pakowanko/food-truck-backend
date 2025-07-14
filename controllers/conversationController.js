@@ -1,11 +1,14 @@
+// controllers/conversationController.js
 const pool = require('../db');
 
 exports.getMessages = async (req, res) => {
-    const { id } = req.params;
-    const { userId } = req.user;
     try {
+        const { id } = req.params;
+        const { userId } = req.user;
         const convResult = await pool.query('SELECT * FROM conversations WHERE conversation_id = $1 AND $2 = ANY(participant_ids)', [id, userId]);
-        if (convResult.rows.length === 0) return res.status(403).json({ message: "Brak dostępu do tej konwersacji." });
+        if (convResult.rows.length === 0) {
+            return res.status(403).json({ message: "Brak dostępu do tej konwersacji." });
+        }
         const messagesResult = await pool.query('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC', [id]);
         res.status(200).json(messagesResult.rows);
     } catch (error) { 
@@ -15,16 +18,21 @@ exports.getMessages = async (req, res) => {
 };
 
 exports.initiateConversation = async (req, res) => {
-    const { recipientId } = req.body;
-    const senderId = req.user.userId;
     try {
+        const { recipientId } = req.body;
+        const senderId = req.user.userId;
         const recipientIdInt = parseInt(recipientId, 10);
-        if (!recipientIdInt || recipientIdInt === senderId) return res.status(400).json({ message: "Nieprawidłowe dane." });
+
+        if (!recipientIdInt) { return res.status(400).json({ message: "Nieprawidłowe ID odbiorcy." }); }
+        if (recipientIdInt === senderId) { return res.status(400).json({ message: "Nie można rozpocząć rozmowy z samym sobą." });}
+
         const existingConv = await pool.query(
             `SELECT * FROM conversations WHERE participant_ids @> ARRAY[$1::integer, $2::integer]`,
             [senderId, recipientIdInt]
         );
-        if (existingConv.rows.length > 0) return res.status(200).json(existingConv.rows[0]);
+
+        if (existingConv.rows.length > 0) { return res.status(200).json(existingConv.rows[0]); }
+
         const newConv = await pool.query('INSERT INTO conversations (participant_ids) VALUES ($1) RETURNING *', [[senderId, recipientIdInt]]);
         res.status(201).json(newConv.rows[0]);
     } catch (error) { 

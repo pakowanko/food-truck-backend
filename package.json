@@ -1,34 +1,31 @@
 {
-  "name": "food-truck-backend",
+  "name": "bookthefoodtruck-api",
   "version": "1.0.0",
-  "description": "food-truck-backend",
+  "description": "Backend API dla platformy do rezerwacji food trucków.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/pakowanko/food-truck-backend.git"
-  },
-  "keywords": [],
   "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/pakowanko/food-truck-backend/issues"
-  },
-  "homepage": "https://github.com/pakowanko/food-truck-backend#readme",
   "dependencies": {
+    "@google-cloud/storage": "^7.16.0",
     "@sendgrid/mail": "^8.1.5",
-    "bcryptjs": "^3.0.2",
+    "axios": "^1.10.0",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^17.1.0",
-    "express": "^5.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.1",
-    "pg": "^8.16.3",
-    "pg-native": "^3.5.2",
+    "pg": "^8.12.0",
     "socket.io": "^4.8.1",
     "stripe": "^18.3.0"
+  },
+  "devDependencies": {
+    "jest": "^30.0.4",
+    "supertest": "^7.1.1"
   }
 }
- 

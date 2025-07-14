@@ -5,8 +5,8 @@ console.log('Łączenie z bazą danych przez DATABASE_URL...');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // SSL jest wymagany przez Google Cloud SQL dla połączeń publicznych
-  ssl: { 
+  // ZMIANA: Włączamy wymagane połączenie SSL
+  ssl: {
     rejectUnauthorized: false
   }
 });

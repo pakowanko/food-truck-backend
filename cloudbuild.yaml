@@ -11,3 +11,6 @@ steps:
       --allow-unauthenticated \
       --add-cloudsql-instances="pakowanko-1723651322373:europe-central2:foodtruck-db" \
       --set-env-vars="DATABASE_URL=$_DATABASE_URL,JWT_SECRET=$_JWT_SECRET,GCS_BUCKET_NAME=$_GCS_BUCKET_NAME,STRIPE_SECRET_KEY=$_STRIPE_SECRET_KEY,SENDGRID_API_KEY=$_SENDGRID_API_KEY,SENDER_EMAIL=$_SENDER_EMAIL,GEOCODING_API_KEY=$_GEOCODING_API_KEY,NODE_ENV=production"
+# ZMIANA: Dodajemy tę sekcję na końcu pliku
+options:
+  logging: CLOUD_LOGGING_ONLY

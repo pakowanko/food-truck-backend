@@ -5,7 +5,8 @@ const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.register = async (req, res) => {
-    // Przyjmujemy tylko te dane, które istnieją w tabeli 'users'
+    console.log('[Controller: register] Uruchomiono tworzenie użytkownika.');
+    // Przyjmujemy TYLKO dane, które należą do tabeli 'users'
     const { 
         email, password, user_type, first_name, last_name, 
         company_name, nip, phone_number, country_code
@@ -39,7 +40,6 @@ exports.register = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // OSTATECZNA POPRAWKA: Zapytanie INSERT zawiera tylko kolumny z tabeli 'users'
         const query = `
             INSERT INTO users (
                 email, password_hash, user_type, first_name, last_name, 
@@ -66,6 +66,7 @@ exports.register = async (req, res) => {
     }
 };
 
+// Funkcja logowania pozostaje bez zmian
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -73,48 +74,30 @@ exports.login = async (req, res) => {
         if (userResult.rows.length === 0) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
-
         const user = userResult.rows[0];
         const isMatch = await bcrypt.compare(password, user.password_hash);
-
         if (!isMatch) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
-
-        const payload = {
-            userId: user.user_id,
-            email: user.email,
-            user_type: user.user_type
-        };
-
+        const payload = { userId: user.user_id, email: user.email, user_type: user.user_type };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-        res.json({
-            token,
-            userId: user.user_id,
-            email: user.email,
-            user_type: user.user_type,
-            company_name: user.company_name
-        });
-
+        res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name });
     } catch (error) {
         console.error('Błąd podczas logowania:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
     }
 };
 
+// Funkcja getProfile pobiera dane TYLKO z tabeli users
 exports.getProfile = async (req, res) => {
     try {
-        // OSTATECZNA POPRAWKA: Zapytanie SELECT zawiera tylko kolumny z tabeli 'users'
         const query = `
             SELECT user_id, email, user_type, first_name, last_name, 
                    company_name, nip, phone_number, country_code
             FROM users 
             WHERE user_id = $1
         `;
-        
         const userResult = await pool.query(query, [req.user.userId]);
-
         if (userResult.rows.length > 0) {
             res.json(userResult.rows[0]);
         } else {

@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('./db');
 
+// Importy tras
 const authRoutes = require('./routes/authRoutes');
 const foodTruckProfileRoutes = require('./routes/foodTruckProfileRoutes');
 const bookingRequestRoutes = require('./routes/bookingRequestRoutes');
@@ -25,13 +26,10 @@ app.use(cors(corsOptions));
 
 app.use(express.json());
 
-// =================================================================
-// === NOWY LOGGER - ZAPISZE W LOGACH KAŻDE PRZYCHODZĄCE ZAPYTANIE ===
 app.use((req, res, next) => {
   console.log(`[Request Logger] Otrzymano zapytanie: ${req.method} ${req.originalUrl}`);
   next();
 });
-// =================================================================
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -47,12 +45,12 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));
 
-// PRZYWRÓCONE PREFIXY /api - są one konieczne
-app.use('/api/auth', authRoutes);
-app.use('/api/profiles', foodTruckProfileRoutes);
-app.use('/api/requests', bookingRequestRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/conversations', conversationRoutes);
+// OSTATECZNA WERSJA: Trasy BEZ prefixu /api
+app.use('/auth', authRoutes);
+app.use('/profiles', foodTruckProfileRoutes);
+app.use('/requests', bookingRequestRoutes);
+app.use('/reviews', reviewRoutes);
+app.use('/conversations', conversationRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');

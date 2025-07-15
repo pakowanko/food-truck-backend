@@ -40,7 +40,8 @@ async function geocode(locationString) {
 
 exports.createProfile = async (req, res) => {
     console.log('[Controller: createProfile] Uruchomiono tworzenie profilu.');
-    let { food_truck_name, food_truck_description, base_location, operation_radius_km, experience_years, certifications, website_url, offer } = req.body;
+    // ZMIANA: Usunięto stare pola, dodano long_term_rental_available
+    let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
     const ownerId = req.user.userId;
 
     try {
@@ -56,9 +57,10 @@ exports.createProfile = async (req, res) => {
 
         const { lat, lon } = await geocode(base_location);
         
+        // ZMIANA: Zaktualizowano zapytanie INSERT
         const newProfile = await pool.query(
-            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, website_url, experience_years, certifications, gallery_photo_urls, profile_image_url, offer) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-            [ownerId, food_truck_name, food_truck_description, base_location, operation_radius_km, lat, lon, website_url, experience_years, certifications, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer]
+            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, website_url, gallery_photo_urls, profile_image_url, offer, long_term_rental_available) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+            [ownerId, food_truck_name, food_truck_description, base_location, operation_radius_km, lat, lon, website_url, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, long_term_rental_available]
         );
         res.status(201).json(newProfile.rows[0]);
     } catch (error) {
@@ -68,9 +70,10 @@ exports.createProfile = async (req, res) => {
 };
 
 exports.updateProfile = async (req, res) => {
-    console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileIdParam}`);
+    console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileId}`);
     const { profileId: profileIdParam } = req.params;
-    let { food_truck_name, food_truck_description, base_location, operation_radius_km, experience_years, certifications, website_url, offer } = req.body;
+    // ZMIANA: Usunięto stare pola, dodano long_term_rental_available
+    let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
     const profileId = parseInt(profileIdParam, 10);
     
     if (isNaN(profileId)) return res.status(400).json({ message: 'Nieprawidłowe ID profilu.' });
@@ -92,9 +95,10 @@ exports.updateProfile = async (req, res) => {
 
         const { lat, lon } = await geocode(base_location);
 
+        // ZMIANA: Zaktualizowano zapytanie UPDATE
         const updatedProfile = await pool.query(
-            `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, website_url = $7, experience_years = $8, certifications = $9, gallery_photo_urls = $10, profile_image_url = $11, offer = $12 WHERE profile_id = $13 RETURNING *`,
-            [food_truck_name, food_truck_description, base_location, operation_radius_km, lat, lon, website_url, experience_years, certifications, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, profileId]
+            `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, website_url = $7, gallery_photo_urls = $8, profile_image_url = $9, offer = $10, long_term_rental_available = $11 WHERE profile_id = $12 RETURNING *`,
+            [food_truck_name, food_truck_description, base_location, operation_radius_km, lat, lon, website_url, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, long_term_rental_available, profileId]
         );
         res.json(updatedProfile.rows[0]);
     } catch (error) {

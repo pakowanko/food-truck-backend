@@ -1,4 +1,3 @@
-food_truck_profiles
 exports.updateProfile = async (req, res) => {
     console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileId}`);
     const { profileId: profileIdParam } = req.params;

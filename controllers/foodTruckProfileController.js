@@ -179,4 +179,4 @@ exports.getProfileById = async (req, res) => {
     console.error("Błąd podczas pobierania pojedynczego profilu:", error);
     res.status(500).json({ message: 'Błąd serwera.' });
   }
-};
+}; 

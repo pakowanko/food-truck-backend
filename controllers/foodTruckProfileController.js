@@ -1,7 +1,72 @@
+const pool = require('../db');
+const axios = require('axios');
+const { Storage } = require('@google-cloud/storage');
+
+const storage = new Storage();
+const bucketName = process.env.GCS_BUCKET_NAME;
+const bucket = storage.bucket(bucketName);
+
+const uploadFileToGCS = (file) => {
+  return new Promise((resolve, reject) => {
+    const { originalname, buffer } = file;
+    const blob = bucket.file(Date.now() + "_" + originalname.replace(/ /g, "_"));
+    const blobStream = blob.createWriteStream({ resumable: false });
+    blobStream.on('finish', () => {
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+      resolve(publicUrl);
+    }).on('error', (err) => {
+      reject(`Nie udało się wysłać obrazka: ${err}`);
+    }).end(buffer);
+  });
+};
+
+async function geocode(locationString) {
+    const apiKey = process.env.GEOCODING_API_KEY;
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(locationString)}&components=country:PL&key=${apiKey}`;
+    try {
+        const response = await axios.get(url);
+        if (response.data.status === 'OK' && response.data.results.length > 0) {
+            const location = response.data.results[0].geometry.location;
+            return { lat: location.lat, lon: location.lng };
+        } else {
+            throw new Error(`Nie udało się znaleźć współrzędnych dla lokalizacji: ${locationString}.`);
+        }
+    } catch (error) {
+        console.error('Błąd Geocoding API:', error.message);
+        throw error;
+    }
+}
+
+exports.createProfile = async (req, res) => {
+    console.log('[Controller: createProfile] Uruchomiono tworzenie profilu.');
+    let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
+    const ownerId = req.user.userId;
+
+    try {
+        let galleryPhotoUrls = [];
+        if (req.files && req.files.length > 0) {
+            const uploadPromises = req.files.map(uploadFileToGCS);
+            galleryPhotoUrls = await Promise.all(uploadPromises);
+        }
+        
+        if (offer && typeof offer === 'string') offer = JSON.parse(offer);
+
+        const { lat, lon } = await geocode(base_location);
+        
+        const newProfile = await pool.query(
+            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, website_url, gallery_photo_urls, profile_image_url, offer, long_term_rental_available) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+            [ownerId, food_truck_name, food_truck_description, base_location, operation_radius_km, lat, lon, website_url, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, long_term_rental_available]
+        );
+        res.status(201).json(newProfile.rows[0]);
+    } catch (error) {
+        console.error('Błąd dodawania profilu food trucka:', error);
+        res.status(500).json({ message: 'Błąd serwera lub nieprawidłowa lokalizacja.' });
+    }
+};
+
 exports.updateProfile = async (req, res) => {
     console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileId}`);
     const { profileId: profileIdParam } = req.params;
-    // ZMIANA: Usunięto stare pola, dodano long_term_rental_available
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
     const profileId = parseInt(profileIdParam, 10);
     
@@ -18,13 +83,10 @@ exports.updateProfile = async (req, res) => {
             galleryPhotoUrls = await Promise.all(uploadPromises);
         }
         
-        if (offer && typeof offer === 'string') {
-            offer = JSON.parse(offer);
-        }
+        if (offer && typeof offer === 'string') offer = JSON.parse(offer);
 
         const { lat, lon } = await geocode(base_location);
 
-        // ZMIANA: Zaktualizowano zapytanie UPDATE
         const updatedProfile = await pool.query(
             `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, website_url = $7, gallery_photo_urls = $8, profile_image_url = $9, offer = $10, long_term_rental_available = $11 WHERE profile_id = $12 RETURNING *`,
             [food_truck_name, food_truck_description, base_location, operation_radius_km, lat, lon, website_url, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, long_term_rental_available, profileId]

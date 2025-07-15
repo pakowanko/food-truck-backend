@@ -9,7 +9,6 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('./db');
 
-// Importy tras
 const authRoutes = require('./routes/authRoutes');
 const foodTruckProfileRoutes = require('./routes/foodTruckProfileRoutes');
 const bookingRequestRoutes = require('./routes/bookingRequestRoutes');
@@ -45,31 +44,39 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));
 
-// OSTATECZNA WERSJA: Trasy BEZ prefixu /api
-app.use('/auth', authRoutes);
-app.use('/profiles', foodTruckProfileRoutes);
-app.use('/requests', bookingRequestRoutes);
-app.use('/reviews', reviewRoutes);
-app.use('/conversations', conversationRoutes);
+// Ostateczna, poprawna konfiguracja tras z prefixami /api
+app.use('/api/auth', authRoutes);
+app.use('/api/profiles', foodTruckProfileRoutes);
+app.use('/api/requests', bookingRequestRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/conversations', conversationRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');
 });
 
+// Pełna logika Socket.IO
 io.on('connection', (socket) => {
   console.log('✅ Użytkownik połączył się z komunikatorem:', socket.id);
+  
   socket.on('join_room', (conversationId) => {
     socket.join(conversationId);
     console.log(`Użytkownik ${socket.id} dołączył do pokoju ${conversationId}`);
   });
+  
   socket.on('send_message', async (data) => {
     const { conversation_id, sender_id, message_content } = data;
     try {
         const newMessage = await pool.query( 'INSERT INTO messages (conversation_id, sender_id, message_content) VALUES ($1, $2, $3) RETURNING *', [conversation_id, sender_id, message_content]);
         io.to(conversation_id).emit('receive_message', newMessage.rows[0]);
-    } catch (error) { console.error("Błąd zapisu/wysyłki wiadomości:", error); }
+    } catch (error) { 
+        console.error("Błąd zapisu/wysyłki wiadomości:", error); 
+    }
   });
-  socket.on('disconnect', () => { console.log('❌ Użytkownik rozłączył się:', socket.id); });
+  
+  socket.on('disconnect', () => { 
+      console.log('❌ Użytkownik rozłączył się:', socket.id); 
+  });
 });
 
 server.listen(PORT, () => {

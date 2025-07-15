@@ -3,7 +3,6 @@ const pool = require('../db');
 const axios = require('axios');
 const { Storage } = require('@google-cloud/storage');
 
-// --- Funkcje pomocnicze (bez zmian) ---
 const storage = new Storage();
 const bucketName = process.env.GCS_BUCKET_NAME;
 const bucket = storage.bucket(bucketName);
@@ -12,22 +11,17 @@ const uploadFileToGCS = (file) => {
   return new Promise((resolve, reject) => {
     const { originalname, buffer } = file;
     const blob = bucket.file(Date.now() + "_" + originalname.replace(/ /g, "_"));
-    const blobStream = blob.createWriteStream({
-      resumable: false,
-    });
-
+    const blobStream = blob.createWriteStream({ resumable: false });
     blobStream.on('finish', () => {
       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
       resolve(publicUrl);
-    })
-    .on('error', (err) => {
+    }).on('error', (err) => {
       reject(`Nie udało się wysłać obrazka: ${err}`);
-    })
-    .end(buffer);
+    }).end(buffer);
   });
 };
 
-async function geocode(locationString) { // Zmieniono nazwę parametru dla jasności
+async function geocode(locationString) {
     const apiKey = process.env.GEOCODING_API_KEY;
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(locationString)}&components=country:PL&key=${apiKey}`;
     try {
@@ -44,10 +38,10 @@ async function geocode(locationString) { // Zmieniono nazwę parametru dla jasno
     }
 }
 
-// --- ZMIANA: Logika tworzenia profilu food trucka ---
 exports.createProfile = async (req, res) => {
+    console.log('[Controller: createProfile] Uruchomiono tworzenie profilu.');
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, experience_years, certifications, website_url, offer } = req.body;
-    const ownerId = req.user.userId; // ZMIANA: Z installerId na ownerId
+    const ownerId = req.user.userId;
 
     try {
         let galleryPhotoUrls = [];
@@ -56,7 +50,6 @@ exports.createProfile = async (req, res) => {
             galleryPhotoUrls = await Promise.all(uploadPromises);
         }
         
-        // Parsowanie obiektu offer, jeśli przyszedł jako string
         if (offer && typeof offer === 'string') {
             offer = JSON.parse(offer);
         }
@@ -74,8 +67,8 @@ exports.createProfile = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Logika aktualizacji profilu food trucka ---
 exports.updateProfile = async (req, res) => {
+    console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileIdParam}`);
     const { profileId: profileIdParam } = req.params;
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, experience_years, certifications, website_url, offer } = req.body;
     const profileId = parseInt(profileIdParam, 10);
@@ -110,8 +103,8 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Pobieranie własnego profilu ---
 exports.getMyProfile = async (req, res) => {
+    console.log(`[Controller: getMyProfile] Uruchomiono pobieranie własnego profilu dla użytkownika ID: ${req.user.userId}`);
     try {
         const profile = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1', [req.user.userId]);
         if (profile.rows.length > 0) {
@@ -125,9 +118,9 @@ exports.getMyProfile = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Pobieranie i filtrowanie wszystkich profili ---
 exports.getAllProfiles = async (req, res) => {
-    const { cuisine, postal_code } = req.query; // ZMIANA: parametr z 'specialization' na 'cuisine'
+    console.log(`[Controller: getAllProfiles] Uruchomiono pobieranie wszystkich profili z filtrami:`, req.query);
+    const { cuisine, postal_code } = req.query;
 
     let query = `
         SELECT 
@@ -150,10 +143,8 @@ exports.getAllProfiles = async (req, res) => {
         }
     }
 
-    // ZMIANA KLUCZOWA: Wyszukiwanie w obiekcie JSONB 'offer'
     if (cuisine) {
         values.push(cuisine);
-        // Sprawdza, czy tablica 'dishes' wewnątrz obiektu 'offer' zawiera podany typ kuchni
         whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
     }
 
@@ -176,8 +167,8 @@ exports.getAllProfiles = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Pobieranie profilu po ID ---
 exports.getProfileById = async (req, res) => {
+  console.log(`[Controller: getProfileById] Uruchomiono pobieranie profilu o ID: ${req.params.profileId}`);
   try {
     const profileId = parseInt(req.params.profileId, 10);
     if (isNaN(profileId)) {

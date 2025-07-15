@@ -4,8 +4,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// Funkcja rejestracji, która tworzy tylko podstawowego użytkownika
 exports.register = async (req, res) => {
+    // Przyjmujemy tylko te dane, które istnieją w tabeli 'users'
     const { 
         email, password, user_type, first_name, last_name, 
         company_name, nip, phone_number, country_code
@@ -14,12 +14,15 @@ exports.register = async (req, res) => {
     if (!email || !password || !user_type) {
         return res.status(400).json({ message: 'Podstawowe pola są wymagane.' });
     }
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
         const existingUser = await client.query('SELECT * FROM users WHERE email = $1', [email]);
         if (existingUser.rows.length > 0) {
+            await client.query('ROLLBACK');
+            client.release();
             return res.status(409).json({ message: 'Użytkownik o tym adresie email już istnieje.' });
         }
 
@@ -29,13 +32,14 @@ exports.register = async (req, res) => {
                 email: email, 
                 name: `${first_name} ${last_name}`, 
                 phone: phone_number,
-                metadata: { company_name: company_name, nip: nip }
+                metadata: { company_name: company_name || '', nip: nip || '' }
             });
             stripeCustomerId = customer.id;
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         
+        // OSTATECZNA POPRAWKA: Zapytanie INSERT zawiera tylko kolumny z tabeli 'users'
         const query = `
             INSERT INTO users (
                 email, password_hash, user_type, first_name, last_name, 
@@ -62,12 +66,10 @@ exports.register = async (req, res) => {
     }
 };
 
-// Funkcja logowania (bez zmian)
 exports.login = async (req, res) => {
     const { email, password } = req.body;
-    const client = await pool.connect();
     try {
-        const userResult = await client.query('SELECT * FROM users WHERE email = $1', [email]);
+        const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
         if (userResult.rows.length === 0) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
@@ -92,20 +94,18 @@ exports.login = async (req, res) => {
             userId: user.user_id,
             email: user.email,
             user_type: user.user_type,
-            company_name: user.company_name // Dodajemy company_name do odpowiedzi
+            company_name: user.company_name
         });
 
     } catch (error) {
         console.error('Błąd podczas logowania:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
-    } finally {
-        client.release();
     }
 };
 
-// Funkcja pobierania podstawowych danych zalogowanego użytkownika (poprawiona)
 exports.getProfile = async (req, res) => {
     try {
+        // OSTATECZNA POPRAWKA: Zapytanie SELECT zawiera tylko kolumny z tabeli 'users'
         const query = `
             SELECT user_id, email, user_type, first_name, last_name, 
                    company_name, nip, phone_number, country_code

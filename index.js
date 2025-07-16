@@ -95,7 +95,7 @@ io.on('connection', (socket) => {
                             to: recipient.email,
                             from: {
                                 email: process.env.SENDER_EMAIL,
-                                name: 'Book The Truck'
+                                name: 'BookTheFoodTruck'
                             },
                             subject: `Masz nową wiadomość od ${senderName}`,
                             html: `<h1>Otrzymałeś nową wiadomość!</h1><p><strong>${senderName}</strong> napisał do Ciebie na czacie.</p><p>Zaloguj się na swoje konto, aby ją odczytać.</p>`,

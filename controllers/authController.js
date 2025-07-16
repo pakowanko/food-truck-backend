@@ -1,12 +1,13 @@
-// controllers/authController.js
 const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const sgMail = require('@sendgrid/mail');
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 exports.register = async (req, res) => {
     console.log('[Controller: register] Uruchomiono tworzenie użytkownika.');
-    // Przyjmujemy TYLKO dane, które należą do tabeli 'users'
     const { 
         email, password, user_type, first_name, last_name, 
         company_name, nip, phone_number, country_code
@@ -53,6 +54,17 @@ exports.register = async (req, res) => {
         ];
         
         const newUser = await client.query(query, values);
+
+        const msg = {
+            to: email,
+            from: {
+                email: process.env.SENDER_EMAIL,
+                name: 'Book The Truck'
+            },
+            subject: 'Witaj w Book The Truck!',
+            html: `<h1>Cześć ${first_name || ''}!</h1><p>Dziękujemy za rejestrację w naszym serwisie. Możesz teraz w pełni korzystać ze swojego konta.</p>`,
+        };
+        await sgMail.send(msg);
         
         await client.query('COMMIT');
         res.status(201).json(newUser.rows[0]);
@@ -66,7 +78,6 @@ exports.register = async (req, res) => {
     }
 };
 
-// Funkcja logowania pozostaje bez zmian
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -88,7 +99,6 @@ exports.login = async (req, res) => {
     }
 };
 
-// Funkcja getProfile pobiera dane TYLKO z tabeli users
 exports.getProfile = async (req, res) => {
     try {
         const query = `

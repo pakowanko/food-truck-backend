@@ -1,13 +1,10 @@
-// controllers/bookingRequestController.js
 const pool = require('../db');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const sgMail = require('@sendgrid/mail');
 
+// Inicjalizujemy SendGrid kluczem ze zmiennych środowiskowych
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-const PLATFORM_COMMISSION_NET = 50.00; // Prowizja pozostaje 50 zł netto
-
-// --- ZMIANA: Tworzenie nowej rezerwacji food trucka ---
+// Tworzenie nowej rezerwacji
 exports.createBookingRequest = async (req, res) => {
     const { 
         profile_id, event_date, event_description,
@@ -15,8 +12,8 @@ exports.createBookingRequest = async (req, res) => {
     } = req.body;
     
     const organizerId = req.user.userId;
-
     const client = await pool.connect();
+
     try {
         await client.query('BEGIN');
 
@@ -37,19 +34,23 @@ exports.createBookingRequest = async (req, res) => {
         );
         const newRequest = newRequestQuery.rows[0];
 
-        // Logika wysyłki maila do właściciela food trucka
+        // Wysyłka maila do właściciela
         const ownerEmailQuery = await client.query(
-            `SELECT u.email FROM users u JOIN food_truck_profiles ftp ON u.user_id = ftp.owner_id WHERE ftp.profile_id = $1`,
+            `SELECT u.email, ftp.food_truck_name FROM users u JOIN food_truck_profiles ftp ON u.user_id = ftp.owner_id WHERE ftp.profile_id = $1`,
             [profile_id]
         );
         const ownerEmail = ownerEmailQuery.rows[0]?.email;
+        const foodTruckName = ownerEmailQuery.rows[0]?.food_truck_name;
 
         if (ownerEmail) {
             const msg = {
                 to: ownerEmail,
-                from: process.env.SENDER_EMAIL,
-                subject: 'Otrzymałeś nowe zapytanie o rezerwację!',
-                html: `<h1>Nowa rezerwacja!</h1><p>Otrzymałeś nowe zapytanie o rezerwację food trucka w platformie. Zaloguj się na swoje konto, aby zobaczyć szczegóły.</p>`,
+                from: {
+                    email: process.env.SENDER_EMAIL,
+                    name: 'Book The Truck'
+                },
+                subject: `Nowa prośba o rezerwację dla ${foodTruckName}!`,
+                html: `<h1>Otrzymałeś nowe zapytanie!</h1><p>Zaloguj się na swoje konto w BookTheTruck, aby zobaczyć szczegóły nowej prośby o rezerwację.</p>`,
             };
             await sgMail.send(msg);
         }
@@ -66,14 +67,13 @@ exports.createBookingRequest = async (req, res) => {
     }
 };
 
-
-// --- ZMIANA: Aktualizacja statusu rezerwacji ---
+// Aktualizacja statusu rezerwacji
 exports.updateBookingStatus = async (req, res) => {
     const { requestId } = req.params;
     const { status } = req.body;
     const ownerId = req.user.userId;
-
     const client = await pool.connect();
+    
     try {
         await client.query('BEGIN');
 
@@ -81,8 +81,7 @@ exports.updateBookingStatus = async (req, res) => {
           `SELECT 
             br.*, 
             u_owner.country_code, 
-            u_owner.stripe_customer_id, 
-            u_owner.phone_number as owner_phone, 
+            u_owner.stripe_customer_id,
             u_organizer.email as organizer_email, 
             ftp.food_truck_name
            FROM booking_requests br 
@@ -104,38 +103,52 @@ exports.updateBookingStatus = async (req, res) => {
         );
 
         if (status === 'confirmed') {
-            // Logika faktury Stripe
-            if (!bookingRequest.stripe_customer_id) throw new Error("Ten właściciel food trucka nie ma konta klienta w Stripe.");
-            const taxRateQuery = await client.query('SELECT vat_rate FROM tax_rates WHERE country_code = $1', [bookingRequest.country_code]);
-            if (taxRateQuery.rows.length === 0) throw new Error(`Nie znaleziono stawki VAT dla kraju: ${bookingRequest.country_code}`);
-            
-            const vatRate = taxRateQuery.rows[0].vat_rate;
-            const commissionGross = PLATFORM_COMMISSION_NET * (1 + vatRate / 100);
-            
-            await stripe.invoiceItems.create({
-                customer: bookingRequest.stripe_customer_id,
-                amount: Math.round(commissionGross * 100),
-                currency: 'pln',
-                description: `Prowizja za rezerwację #${requestId}`,
-            });
-            const invoice = await stripe.invoices.create({
-                customer: bookingRequest.stripe_customer_id,
-                collection_method: 'send_invoice',
-                days_until_due: 7,
-                auto_advance: true,
-            });
-            await stripe.invoices.sendInvoice(invoice.id);
+            // Logika faktury Stripe (jeśli jest skonfigurowana)
+            if (process.env.STRIPE_SECRET_KEY && bookingRequest.stripe_customer_id) {
+                const taxRateQuery = await client.query('SELECT vat_rate FROM tax_rates WHERE country_code = $1', [bookingRequest.country_code]);
+                if (taxRateQuery.rows.length > 0) {
+                    const PLATFORM_COMMISSION_NET = 200.00; // Prowizja 200 zł netto
+                    const vatRate = taxRateQuery.rows[0].vat_rate;
+                    const commissionGross = PLATFORM_COMMISSION_NET * (1 + vatRate / 100);
+                    
+                    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+                    await stripe.invoiceItems.create({
+                        customer: bookingRequest.stripe_customer_id,
+                        amount: Math.round(commissionGross * 100),
+                        currency: 'pln',
+                        description: `Prowizja za rezerwację #${requestId}`,
+                    });
+                    const invoice = await stripe.invoices.create({
+                        customer: bookingRequest.stripe_customer_id,
+                        collection_method: 'send_invoice',
+                        days_until_due: 7,
+                        auto_advance: true,
+                    });
+                    await stripe.invoices.sendInvoice(invoice.id);
+                }
+            }
 
-            // Logika wysyłki maila do organizatora
-            const msg = {
-                to: bookingRequest.organizer_email,
-                from: process.env.SENDER_EMAIL,
-                subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została potwierdzona!`,
-                html: `<h1>Rezerwacja Potwierdzona!</h1>
-                       <p>Twoja rezerwacja food trucka <strong>${bookingRequest.food_truck_name}</strong> została potwierdzona.</p>
-                       <p>Możesz teraz skontaktować się bezpośrednio z właścicielem pod numerem telefonu: <strong>${bookingRequest.owner_phone}</strong> w celu umówienia szczegółów.</p>`,
-            };
-            await sgMail.send(msg);
+            // Mail do organizatora o potwierdzeniu
+            if (bookingRequest.organizer_email) {
+                const msg = {
+                    to: bookingRequest.organizer_email,
+                    from: { email: process.env.SENDER_EMAIL, name: 'Book The Truck' },
+                    subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została POTWIERDZONA!`,
+                    html: `<h1>Rezerwacja Potwierdzona!</h1><p>Dobra wiadomość! Twoja rezerwacja food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_date).toLocaleDateString()} została potwierdzona przez właściciela.</p>`,
+                };
+                await sgMail.send(msg);
+            }
+        
+        } else if (status === 'rejected_by_owner') {
+            if (bookingRequest.organizer_email) {
+                const msg = {
+                    to: bookingRequest.organizer_email,
+                    from: { email: process.env.SENDER_EMAIL, name: 'Book The Truck' },
+                    subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została odrzucona`,
+                    html: `<h1>Rezerwacja Odrzucona</h1><p>Niestety, Twoja rezerwacja dla food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_date).toLocaleDateString()} została odrzucona przez właściciela.</p><p>Zachęcamy do wyszukania innego food trucka na naszej platformie!</p>`,
+                };
+                await sgMail.send(msg);
+            }
         }
 
         await client.query('COMMIT');
@@ -149,8 +162,7 @@ exports.updateBookingStatus = async (req, res) => {
     }
 };
 
-
-// --- ZMIANA: Pobieranie rezerwacji ---
+// Pobieranie rezerwacji
 exports.getMyBookings = async (req, res) => {
     const userId = req.user.userId;
     const userRole = req.user.user_type;

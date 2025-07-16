@@ -44,6 +44,10 @@ exports.createProfile = async (req, res) => {
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
     const ownerId = req.user.userId;
 
+    if (!ownerId) {
+        return res.status(403).json({ message: 'Brak autoryzacji do utworzenia profilu.' });
+    }
+
     try {
         let galleryPhotoUrls = [];
         if (req.files && req.files.length > 0) {
@@ -52,13 +56,14 @@ exports.createProfile = async (req, res) => {
         }
         
         if (offer && typeof offer === 'string') offer = JSON.parse(offer);
+        
         const isLongTerm = /true/i.test(long_term_rental_available);
 
         const { lat, lon } = await geocode(base_location);
         
         const newProfile = await pool.query(
             `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, website_url, gallery_photo_urls, profile_image_url, offer, long_term_rental_available) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-            [ownerId, food_truck_name, food_truck_description, base_location, operation_radius_km || null, lat, lon, website_url || null, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm]
+            [ownerId, food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, website_url || null, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm]
         );
         res.status(201).json(newProfile.rows[0]);
     } catch (error) {
@@ -93,7 +98,7 @@ exports.updateProfile = async (req, res) => {
 
         const updatedProfile = await pool.query(
             `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, website_url = $7, gallery_photo_urls = $8, profile_image_url = $9, offer = $10, long_term_rental_available = $11 WHERE profile_id = $12 RETURNING *`,
-            [food_truck_name, food_truck_description, base_location, operation_radius_km || null, lat, lon, website_url || null, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm, profileId]
+            [food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, website_url || null, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm, profileId]
         );
         res.json(updatedProfile.rows[0]);
     } catch (error) {
@@ -104,8 +109,12 @@ exports.updateProfile = async (req, res) => {
 
 exports.getMyProfile = async (req, res) => {
     console.log(`[Controller: getMyProfile] Uruchomiono pobieranie własnego profilu dla użytkownika ID: ${req.user.userId}`);
+    const { userId } = req.user;
+    if (!userId) {
+        return res.status(403).json({ message: 'Brak autoryzacji.' });
+    }
     try {
-        const profile = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1', [req.user.userId]);
+        const profile = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1', [userId]);
         if (profile.rows.length > 0) {
             res.json(profile.rows[0]);
         } else {

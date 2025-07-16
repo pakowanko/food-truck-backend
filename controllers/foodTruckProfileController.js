@@ -39,7 +39,6 @@ async function geocode(locationString) {
     }
 }
 
-// ZMIANA: Uodporniona funkcja createProfile
 exports.createProfile = async (req, res) => {
     console.log('[Controller: createProfile] Uruchomiono tworzenie profilu.');
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
@@ -53,7 +52,6 @@ exports.createProfile = async (req, res) => {
         }
         
         if (offer && typeof offer === 'string') offer = JSON.parse(offer);
-        // Konwersja stringa 'true'/'false' na boolean
         const isLongTerm = /true/i.test(long_term_rental_available);
 
         const { lat, lon } = await geocode(base_location);
@@ -68,11 +66,6 @@ exports.createProfile = async (req, res) => {
         res.status(500).json({ message: 'Błąd serwera lub nieprawidłowa lokalizacja.' });
     }
 };
-
-
-// Pozostałe funkcje (updateProfile, getMyProfile, itd.)
-// ... wklej tutaj resztę funkcji, które już masz i które są poprawne ...
-// Wkleiłem je poniżej dla 100% pewności.
 
 exports.updateProfile = async (req, res) => {
     console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileId}`);

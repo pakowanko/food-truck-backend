@@ -22,7 +22,10 @@ const app = express();
 
 const corsOptions = {
   origin: 'https://pakowanko-1723651322373.web.app',
-  optionsSuccessStatus: 200
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+  allowedHeaders: "Content-Type,Authorization",
+  optionsSuccessStatus: 200,
+  credentials: true
 };
 app.use(cors(corsOptions));
 app.use(express.json());

@@ -66,18 +66,17 @@ exports.createProfile = async (req, res) => {
         );
         res.status(201).json(newProfile.rows[0]);
     } catch (error) {
-        // JEDYNA ZMIANA JEST TUTAJ, W TYM BLOKU 'CATCH'
-        if (error.isAxiosError) {
-            console.error('--- SZCZEGÓŁY BŁĘDU Z GOOGLE MAPS ---');
-            console.error('STATUS:', error.response?.status);
-            console.error('DANE:', error.response?.data);
-            console.error('------------------------------------');
-        } else {
-            console.error('Błąd dodawania profilu food trucka (inny niż sieciowy):', error);
-        }
+        // OSTATECZNA WERSJA LOGOWANIA, KTÓRA ZŁAPIE WSZYSTKO
+        console.error('--- KRYTYCZNY BŁĄD PODCZAS TWORZENIA PROFILU ---');
+        console.error('TYP BŁĘDU:', error.name);
+        console.error('WIADOMOŚĆ:', error.message);
+        console.error('STOS WYWOŁAŃ (STACK TRACE):', error.stack);
+        console.error('-------------------------------------------');
         res.status(500).json({ message: 'Błąd serwera lub nieprawidłowa lokalizacja.' });
     }
 };
+
+// ... reszta pliku pozostaje bez zmian ...
 
 exports.updateProfile = async (req, res) => {
     console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileId}`);

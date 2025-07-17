@@ -10,4 +10,20 @@ const pool = new Pool({
   }
 });
 
+// === NOWY BLOK DIAGNOSTYCZNY ===
+pool.query(`
+  SELECT column_name, data_type 
+  FROM information_schema.columns 
+  WHERE table_name = 'conversations';
+`)
+.then(res => {
+  console.log('--- DIAGNOSTYKA: Struktura tabeli "conversations" ---');
+  console.log(res.rows);
+  console.log('----------------------------------------------------');
+})
+.catch(err => {
+  console.error('!!! BŁĄD DIAGNOSTYKI: Nie można odczytać struktury tabeli "conversations" !!!', err);
+});
+// ================================
+
 module.exports = pool;

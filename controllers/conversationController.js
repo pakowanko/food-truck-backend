@@ -1,11 +1,12 @@
 const pool = require('../db');
 
-// Pobiera wszystkie konwersacje zalogowanego użytkownika (ogólne i o rezerwacje)
 exports.getMyConversations = async (req, res) => {
     try {
         const { userId } = req.user;
-        const result = await pool.query(
-            `SELECT 
+
+        // === NOWY BLOK DIAGNOSTYCZNY ===
+        const sqlQuery = `
+            SELECT 
                 c.conversation_id, 
                 c.title,
                 c.request_id,
@@ -16,12 +17,21 @@ exports.getMyConversations = async (req, res) => {
              FROM conversations c
              JOIN users u ON u.user_id = (CASE WHEN c.participant_ids[1] = $1 THEN c.participant_ids[2] ELSE c.participant_ids[1] END)
              WHERE $1 = ANY(c.participant_ids)
-             ORDER BY c.created_at DESC`,
-            [userId]
-        );
+             ORDER BY c.created_at DESC`;
+        
+        console.log('--- DIAGNOSTYKA: Wykonywanie zapytania getMyConversations ---');
+        console.log('SQL:', sqlQuery.replace(/\s+/g, ' ').trim());
+        console.log('Parametry:', [userId]);
+        console.log('---------------------------------------------------------');
+        // ================================
+
+        const result = await pool.query(sqlQuery, [userId]);
+        
+        console.log(`[getMyConversations] Zapytanie wykonane pomyślnie, zwrócono ${result.rows.length} wierszy.`);
         res.json(result.rows);
+
     } catch (error) {
-        console.error("Błąd pobierania konwersacji:", error);
+        console.error("!!! KRYTYCZNY BŁĄD podczas pobierania konwersacji:", error);
         res.status(500).json({ message: "Błąd serwera." });
     }
 };

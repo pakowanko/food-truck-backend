@@ -1,29 +1,27 @@
 // db.js
 const { Pool } = require('pg');
 
-console.log('Łączenie z bazą danych przez DATABASE_URL z SSL...');
+console.log('--- Inicjalizacja Połączenia z Bazą Danych ---');
 
-const pool = new Pool({
+const config = {
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
   }
-});
+};
 
 // === NOWY BLOK DIAGNOSTYCZNY ===
-pool.query(`
-  SELECT column_name, data_type 
-  FROM information_schema.columns 
-  WHERE table_name = 'conversations';
-`)
-.then(res => {
-  console.log('--- DIAGNOSTYKA: Struktura tabeli "conversations" ---');
-  console.log(res.rows);
-  console.log('----------------------------------------------------');
-})
-.catch(err => {
-  console.error('!!! BŁĄD DIAGNOSTYKI: Nie można odczytać struktury tabeli "conversations" !!!', err);
-});
+console.log('Używana konfiguracja połączenia (bez hasła):');
+const { password, ...configWithoutPassword } = config;
+console.log(configWithoutPassword);
+console.log('-------------------------------------------');
 // ================================
+
+const pool = new Pool(config);
+
+pool.on('error', (err, client) => {
+  console.error('!!! Nieoczekiwany błąd na kliencie puli połączeń !!!', err);
+  process.exit(-1);
+});
 
 module.exports = pool;

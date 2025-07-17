@@ -70,7 +70,7 @@ exports.register = async (req, res) => {
             res.status(201).json(newUser.rows[0]);
         } catch (error) {
             await client.query('ROLLBACK');
-            throw error; // Rzuć błąd dalej, aby został złapany przez zewnętrzny blok catch
+            throw error;
         } finally {
             client.release();
         }
@@ -101,6 +101,7 @@ exports.login = async (req, res) => {
     }
 };
 
+// JEDYNA ZMIANA JEST TUTAJ
 exports.getProfile = async (req, res) => {
     try {
         const query = `
@@ -110,8 +111,21 @@ exports.getProfile = async (req, res) => {
             WHERE user_id = $1
         `;
         const userResult = await pool.query(query, [req.user.userId]);
+
         if (userResult.rows.length > 0) {
-            res.json(userResult.rows[0]);
+            const userProfile = userResult.rows[0];
+            // Przemapowujemy "user_id" na "userId", aby było spójne z logowaniem
+            res.json({
+                userId: userProfile.user_id,
+                email: userProfile.email,
+                user_type: userProfile.user_type,
+                first_name: userProfile.first_name,
+                last_name: userProfile.last_name,
+                company_name: userProfile.company_name,
+                nip: userProfile.nip,
+                phone_number: userProfile.phone_number,
+                country_code: userProfile.country_code
+            });
         } else {
             res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
         }

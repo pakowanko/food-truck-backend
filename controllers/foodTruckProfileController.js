@@ -42,7 +42,7 @@ async function geocode(locationString) {
 exports.createProfile = async (req, res) => {
     console.log('[Controller: createProfile] Uruchomiono tworzenie profilu.');
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, website_url, offer, long_term_rental_available } = req.body;
-    const ownerId = req.user.userId;
+    const ownerId = parseInt(req.user.userId, 10);
 
     if (!ownerId) {
         return res.status(403).json({ message: 'Brak autoryzacji do utworzenia profilu.' });

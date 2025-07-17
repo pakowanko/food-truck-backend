@@ -30,7 +30,7 @@ async function geocode(locationString) {
             const location = response.data.results[0].geometry.location;
             return { lat: location.lat, lon: location.lng };
         } else {
-            console.warn(`Nie udało się znaleźć współrzędnych dla lokalizacji: ${locationString}.`);
+            console.warn(`Nie udało się znaleźć współrzędnych dla lokalizacji: ${locationString}. Odpowiedź API: ${response.data.status}`);
             return { lat: null, lon: null };
         }
     } catch (error) {
@@ -66,7 +66,15 @@ exports.createProfile = async (req, res) => {
         );
         res.status(201).json(newProfile.rows[0]);
     } catch (error) {
-        console.error('Błąd dodawania profilu food trucka:', error);
+        // JEDYNA ZMIANA JEST TUTAJ, W TYM BLOKU 'CATCH'
+        if (error.isAxiosError) {
+            console.error('--- SZCZEGÓŁY BŁĘDU Z GOOGLE MAPS ---');
+            console.error('STATUS:', error.response?.status);
+            console.error('DANE:', error.response?.data);
+            console.error('------------------------------------');
+        } else {
+            console.error('Błąd dodawania profilu food trucka (inny niż sieciowy):', error);
+        }
         res.status(500).json({ message: 'Błąd serwera lub nieprawidłowa lokalizacja.' });
     }
 };

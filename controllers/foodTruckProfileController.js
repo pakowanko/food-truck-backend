@@ -56,7 +56,6 @@ exports.createProfile = async (req, res) => {
         }
         
         if (offer && typeof offer === 'string') offer = JSON.parse(offer);
-        
         const isLongTerm = /true/i.test(long_term_rental_available);
 
         const { lat, lon } = await geocode(base_location);

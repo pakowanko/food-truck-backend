@@ -9,7 +9,6 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('./db');
 
-// ZMIANA: Dodajemy import i konfigurację SendGrid
 const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -43,7 +42,9 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 8080;
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+app.use('/uploads', express.static(uploadsDir));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profiles', foodTruckProfileRoutes);
@@ -63,19 +64,15 @@ io.on('connection', (socket) => {
     console.log(`Użytkownik ${socket.id} dołączył do pokoju ${conversationId}`);
   });
 
-  // ZMIANA: Rozbudowujemy logikę wysyłania wiadomości
   socket.on('send_message', async (data) => {
     const { conversation_id, sender_id, message_content } = data;
     try {
         const newMessageQuery = await pool.query( 'INSERT INTO messages (conversation_id, sender_id, message_content) VALUES ($1, $2, $3) RETURNING *', [conversation_id, sender_id, message_content]);
         const newMessage = newMessageQuery.rows[0];
         
-        // Wyślij wiadomość do wszystkich w pokoju (w tym do nadawcy)
         io.to(conversation_id).emit('receive_message', newMessage);
 
-        // === LOGIKA POWIADOMIEŃ EMAIL ===
         const roomSockets = await io.in(conversation_id).allSockets();
-        // Jeśli w pokoju jest tylko 1 osoba (nadawca), wyślij maila do odbiorcy
         if (roomSockets.size <= 1) {
             const conversationQuery = await pool.query('SELECT participant_ids FROM conversations WHERE conversation_id = $1', [conversation_id]);
             const participantIds = conversationQuery.rows[0]?.participant_ids;
@@ -106,8 +103,6 @@ io.on('connection', (socket) => {
                 }
             }
         }
-        // ===================================
-
     } catch (error) { 
         console.error("Błąd zapisu/wysyłki wiadomości:", error); 
     }

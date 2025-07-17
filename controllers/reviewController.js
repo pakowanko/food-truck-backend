@@ -1,12 +1,13 @@
-// controllers/reviewController.js
-const pool = require('../db');
+const { Pool } = require('pg');
+const dbConfig = require('../db');
 
-// POPRAWKA: Zmieniono nieprawidłowy komentarz '##' na '//'
-// Pobieranie opinii dla profilu
 exports.getReviewsForProfile = async (req, res) => {
+    const pool = new Pool(dbConfig);
+    const client = await pool.connect();
     try {
+        console.log(`[getReviewsForProfile] Połączono z bazą dla profilu ID: ${req.params.profileId}`);
         const { profileId } = req.params;
-        const reviews = await pool.query(
+        const reviews = await client.query(
             `SELECT r.review_id, r.rating, r.comment, r.created_at, u.first_name 
              FROM reviews r
              JOIN users u ON r.organizer_id = u.user_id
@@ -18,19 +19,25 @@ exports.getReviewsForProfile = async (req, res) => {
     } catch (error) {
         console.error("Błąd podczas pobierania opinii:", error);
         res.status(500).json({ message: "Błąd serwera." });
+    } finally {
+        if (client) client.release();
+        await pool.end();
+        console.log(`[getReviewsForProfile] Połączenie z bazą zamknięte dla profilu ID: ${req.params.profileId}`);
     }
 };
 
-// POPRAWKA: Zmieniono nieprawidłowy komentarz '##' na '//'
-// Tworzenie nowej opinii
 exports.createReview = async (req, res) => {
+    const pool = new Pool(dbConfig);
+    const client = await pool.connect();
     try {
+        console.log(`[createReview] Połączono z bazą.`);
         const { request_id, rating, comment } = req.body;
         const organizerId = req.user.userId;
 
-        // 1. Sprawdź, czy rezerwacja istnieje i należy do organizatora
-        const requestQuery = await pool.query(
-            'SELECT owner_id FROM booking_requests WHERE request_id = $1 AND organizer_id = $2',
+        await client.query('BEGIN');
+        
+        const requestQuery = await client.query(
+            'SELECT owner_id FROM booking_requests br JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id WHERE br.request_id = $1 AND br.organizer_id = $2',
             [request_id, organizerId]
         );
 
@@ -40,8 +47,7 @@ exports.createReview = async (req, res) => {
         
         const { owner_id } = requestQuery.rows[0];
         
-        // 2. Znajdź profil food trucka na podstawie ID właściciela
-        const profileQuery = await pool.query(
+        const profileQuery = await client.query(
             'SELECT profile_id FROM food_truck_profiles WHERE owner_id = $1',
             [owner_id]
         );
@@ -52,16 +58,20 @@ exports.createReview = async (req, res) => {
 
         const { profile_id } = profileQuery.rows[0];
 
-        // 3. Wstaw nową opinię, łącząc ją z profilem
-        const newReview = await pool.query(
-            `INSERT INTO reviews (profile_id, organizer_id, request_id, rating, comment)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        const newReview = await client.query(
+            `INSERT INTO reviews (profile_id, organizer_id, request_id, rating, comment) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
             [profile_id, organizerId, request_id, rating, comment]
         );
 
+        await client.query('COMMIT');
         res.status(201).json(newReview.rows[0]);
     } catch (error) {
+        if (client) await client.query('ROLLBACK');
         console.error("Błąd podczas tworzenia opinii:", error);
         res.status(500).json({ message: "Błąd serwera." });
+    } finally {
+        if (client) client.release();
+        await pool.end();
+        console.log('[createReview] Połączenie z bazą zamknięte.');
     }
 };

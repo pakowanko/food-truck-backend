@@ -6,6 +6,7 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // Tworzenie nowej rezerwacji
 exports.createBookingRequest = async (req, res) => {
+    console.log('[Controller: createBookingRequest] Uruchomiono tworzenie rezerwacji.');
     const { 
         profile_id, event_date, event_description,
         event_type, guest_count, event_location, event_time,
@@ -29,8 +30,8 @@ exports.createBookingRequest = async (req, res) => {
             ) VALUES ($1, $2, $3, $4, 'pending_owner_approval', $5, $6, $7, $8, $9, $10) RETURNING *`,
             [
                 profile_id, organizerId, event_date, event_description,
-                organizerPhone, event_type, guest_count || null,
-                event_location, event_time, utility_costs || null
+                organizerPhone, event_type, parseInt(guest_count) || null,
+                event_location, event_time, parseFloat(utility_costs) || null
             ]
         );
         const newRequest = newRequestQuery.rows[0];
@@ -63,12 +64,13 @@ exports.createBookingRequest = async (req, res) => {
         console.error('Błąd tworzenia rezerwacji:', error);
         res.status(500).json({ message: 'Błąd serwera podczas tworzenia rezerwacji.' });
     } finally {
-        client.release();
+        if(client) client.release();
     }
 };
 
 // Aktualizacja statusu rezerwacji
 exports.updateBookingStatus = async (req, res) => {
+    console.log(`[Controller: updateBookingStatus] Aktualizacja statusu dla rezerwacji ID: ${req.params.requestId}`);
     const { requestId } = req.params;
     const { status } = req.body;
     const ownerId = req.user.userId;
@@ -82,6 +84,7 @@ exports.updateBookingStatus = async (req, res) => {
             br.*, 
             u_owner.country_code, 
             u_owner.stripe_customer_id,
+            u_owner.email as owner_email,
             u_organizer.email as organizer_email, 
             ftp.food_truck_name
            FROM booking_requests br 
@@ -135,6 +138,16 @@ exports.updateBookingStatus = async (req, res) => {
                 };
                 await sgMail.send(msg);
             }
+
+            if (bookingRequest.owner_email) {
+                const msg = {
+                    to: bookingRequest.owner_email,
+                    from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
+                    subject: `Potwierdziłeś rezerwację #${requestId}!`,
+                    html: `<h1>Rezerwacja potwierdzona!</h1><p>Dziękujemy za potwierdzenie rezerwacji. Faktura za naszą prowizję zostanie wkrótce wysłana.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p>`,
+                };
+                await sgMail.send(msg);
+            }
         
         } else if (status === 'rejected_by_owner') {
             if (bookingRequest.organizer_email) {
@@ -155,7 +168,7 @@ exports.updateBookingStatus = async (req, res) => {
         console.error("Błąd aktualizacji statusu rezerwacji:", error);
         res.status(500).json({ message: error.message || 'Błąd serwera.' });
     } finally {
-        client.release();
+        if (client) client.release();
     }
 };
 
@@ -164,22 +177,27 @@ exports.getMyBookings = async (req, res) => {
     const userId = req.user.userId;
     const userRole = req.user.user_type;
     try {
-        let query;
-        const values = [userId];
+        const client = await pool.connect();
+        try {
+            let query;
+            const values = [userId];
 
-        if (userRole === 'organizer') {
-            query = `SELECT br.*, ftp.food_truck_name, ftp.owner_id FROM booking_requests br JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id WHERE br.organizer_id = $1 ORDER BY br.created_at DESC`;
-        } else { // food_truck_owner
-            query = `SELECT br.*, u.email as organizer_email, u.first_name as organizer_first_name, u.last_name as organizer_last_name, br.organizer_id, br.organizer_phone 
-                     FROM booking_requests br 
-                     JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id 
-                     JOIN users u ON br.organizer_id = u.user_id 
-                     WHERE ftp.owner_id = $1 
-                     ORDER BY br.created_at DESC`;
+            if (userRole === 'organizer') {
+                query = `SELECT br.*, ftp.food_truck_name, ftp.owner_id FROM booking_requests br JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id WHERE br.organizer_id = $1 ORDER BY br.created_at DESC`;
+            } else { // food_truck_owner
+                query = `SELECT br.*, u.email as organizer_email, u.first_name as organizer_first_name, u.last_name as organizer_last_name, br.organizer_id, br.organizer_phone 
+                         FROM booking_requests br 
+                         JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id 
+                         JOIN users u ON br.organizer_id = u.user_id 
+                         WHERE ftp.owner_id = $1 
+                         ORDER BY br.created_at DESC`;
+            }
+            
+            const requests = await client.query(query, values);
+            res.json(requests.rows);
+        } finally {
+            client.release();
         }
-        
-        const requests = await pool.query(query, values);
-        res.json(requests.rows);
     } catch (error) {
         console.error("Błąd pobierania rezerwacji:", error);
         res.status(500).json({ message: 'Błąd serwera.' });

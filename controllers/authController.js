@@ -17,64 +17,66 @@ exports.register = async (req, res) => {
         return res.status(400).json({ message: 'Podstawowe pola są wymagane.' });
     }
 
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
 
-        const existingUser = await client.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (existingUser.rows.length > 0) {
-            await client.query('ROLLBACK');
-            client.release();
-            return res.status(409).json({ message: 'Użytkownik o tym adresie email już istnieje.' });
-        }
+            const existingUser = await client.query('SELECT * FROM users WHERE email = $1', [email]);
+            if (existingUser.rows.length > 0) {
+                await client.query('ROLLBACK');
+                return res.status(409).json({ message: 'Użytkownik o tym adresie email już istnieje.' });
+            }
 
-        let stripeCustomerId = null;
-        if (user_type === 'food_truck_owner' && process.env.STRIPE_SECRET_KEY) {
-            const customer = await stripe.customers.create({
-                email: email, 
-                name: `${first_name} ${last_name}`, 
-                phone: phone_number,
-                metadata: { company_name: company_name || '', nip: nip || '' }
-            });
-            stripeCustomerId = customer.id;
-        }
+            let stripeCustomerId = null;
+            if (user_type === 'food_truck_owner' && process.env.STRIPE_SECRET_KEY) {
+                const customer = await stripe.customers.create({
+                    email: email, 
+                    name: `${first_name} ${last_name}`, 
+                    phone: phone_number,
+                    metadata: { company_name: company_name || '', nip: nip || '' }
+                });
+                stripeCustomerId = customer.id;
+            }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        
-        const query = `
-            INSERT INTO users (
-                email, password_hash, user_type, first_name, last_name, 
-                company_name, nip, phone_number, country_code, stripe_customer_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
-            RETURNING user_id, email, user_type`;
+            const hashedPassword = await bcrypt.hash(password, 10);
             
-        const values = [
-            email, hashedPassword, user_type, first_name, last_name, 
-            company_name, nip, phone_number, country_code, stripeCustomerId
-        ];
-        
-        const newUser = await client.query(query, values);
+            const query = `
+                INSERT INTO users (
+                    email, password_hash, user_type, first_name, last_name, 
+                    company_name, nip, phone_number, country_code, stripe_customer_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+                RETURNING user_id, email, user_type`;
+                
+            const values = [
+                email, hashedPassword, user_type, first_name, last_name, 
+                company_name, nip, phone_number, country_code, stripeCustomerId
+            ];
+            
+            const newUser = await client.query(query, values);
 
-        const msg = {
-            to: email,
-            from: {
-                email: process.env.SENDER_EMAIL,
-                name: 'Book The Truck'
-            },
-            subject: 'Witaj w Book The Truck!',
-            html: `<h1>Cześć ${first_name || ''}!</h1><p>Dziękujemy za rejestrację w naszym serwisie. Możesz teraz w pełni korzystać ze swojego konta.</p>`,
-        };
-        await sgMail.send(msg);
-        
-        await client.query('COMMIT');
-        res.status(201).json(newUser.rows[0]);
-
+            const msg = {
+                to: email,
+                from: {
+                    email: process.env.SENDER_EMAIL,
+                    name: 'BookTheFoodTruck'
+                },
+                subject: 'Witaj w BookTheFoodTruck!',
+                html: `<h1>Cześć ${first_name || ''}!</h1><p>Dziękujemy za rejestrację w naszym serwisie. Możesz teraz w pełni korzystać ze swojego konta.</p>`,
+            };
+            await sgMail.send(msg);
+            
+            await client.query('COMMIT');
+            res.status(201).json(newUser.rows[0]);
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error; // Rzuć błąd dalej, aby został złapany przez zewnętrzny blok catch
+        } finally {
+            client.release();
+        }
     } catch (error) {
-        await client.query('ROLLBACK');
         console.error('Błąd podczas rejestracji:', error);
         res.status(500).json({ message: error.message || 'Błąd serwera podczas rejestracji.' });
-    } finally {
-        client.release();
     }
 };
 

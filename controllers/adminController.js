@@ -11,7 +11,6 @@ exports.getAllUsers = async (req, res) => {
     }
 };
 
-// --- NOWA FUNKCJA ---
 exports.getAllBookings = async (req, res) => {
     try {
         const result = await pool.query(
@@ -29,7 +28,6 @@ exports.getAllBookings = async (req, res) => {
     }
 };
 
-// --- NOWA FUNKCJA ---
 exports.toggleUserBlock = async (req, res) => {
     const { userId } = req.params;
     try {
@@ -47,7 +45,6 @@ exports.toggleUserBlock = async (req, res) => {
     }
 };
 
-// --- NOWA FUNKCJA ---
 exports.updatePackagingStatus = async (req, res) => {
     const { requestId } = req.params;
     const { packaging_ordered } = req.body;
@@ -62,6 +59,25 @@ exports.updatePackagingStatus = async (req, res) => {
         res.json(result.rows[0]);
     } catch (error) {
         console.error("Błąd zmiany statusu opakowań:", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+// --- NOWA FUNKCJA ---
+exports.updateCommissionStatus = async (req, res) => {
+    const { requestId } = req.params;
+    const { commission_paid } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE booking_requests SET commission_paid = $1 WHERE request_id = $2 RETURNING request_id, commission_paid',
+            [commission_paid, requestId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono rezerwacji.' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("Błąd zmiany statusu prowizji:", error);
         res.status(500).json({ message: "Błąd serwera." });
     }
 };

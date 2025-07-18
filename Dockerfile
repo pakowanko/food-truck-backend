@@ -1,3 +1,5 @@
+# Cache buster 18.07.2025 17:30
+
 # Użyj oficjalnego obrazu Node.js jako bazy
 FROM node:18-alpine
 

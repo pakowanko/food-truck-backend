@@ -7,9 +7,8 @@ const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 exports.register = async (req, res) => {
-    console.log('[Controller: register] Uruchomiono tworzenie użytkownika.');
-    const { 
-        email, password, user_type, first_name, last_name, 
+    const {
+        email, password, user_type, first_name, last_name,
         company_name, nip, phone_number, country_code,
         street_address, postal_code, city
     } = req.body;
@@ -32,8 +31,8 @@ exports.register = async (req, res) => {
             let stripeCustomerId = null;
             if (user_type === 'food_truck_owner' && process.env.STRIPE_SECRET_KEY) {
                 const customer = await stripe.customers.create({
-                    email: email, 
-                    name: company_name || `${first_name} ${last_name}`, 
+                    email: email,
+                    name: company_name || `${first_name} ${last_name}`,
                     phone: phone_number,
                     address: {
                         line1: street_address,
@@ -47,21 +46,21 @@ exports.register = async (req, res) => {
             }
 
             const hashedPassword = await bcrypt.hash(password, 10);
-            
+
             const query = `
                 INSERT INTO users (
-                    email, password_hash, user_type, first_name, last_name, 
+                    email, password_hash, user_type, first_name, last_name,
                     company_name, nip, phone_number, country_code, stripe_customer_id,
                     street_address, postal_code, city
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) 
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 RETURNING user_id, email, user_type`;
-                
+
             const values = [
-                email, hashedPassword, user_type, first_name, last_name, 
+                email, hashedPassword, user_type, first_name, last_name,
                 company_name, nip, phone_number, country_code, stripeCustomerId,
                 street_address, postal_code, city
             ];
-            
+
             const newUser = await client.query(query, values);
 
             const msg = {
@@ -71,7 +70,7 @@ exports.register = async (req, res) => {
                 html: `<h1>Cześć ${first_name || ''}!</h1><p>Dziękujemy za rejestrację w naszym serwisie. Możesz teraz w pełni korzystać ze swojego konta.</p>`,
             };
             await sgMail.send(msg);
-            
+
             await client.query('COMMIT');
             res.status(201).json(newUser.rows[0]);
         } catch (error) {
@@ -103,10 +102,10 @@ exports.login = async (req, res) => {
         if (!isMatch) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
-        
+
         const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
-        
+
         res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name, role: user.role });
 
     } catch (error) {
@@ -118,10 +117,10 @@ exports.login = async (req, res) => {
 exports.getProfile = async (req, res) => {
     try {
         const query = `
-            SELECT user_id, email, user_type, first_name, last_name, 
+            SELECT user_id, email, user_type, first_name, last_name,
                    company_name, nip, phone_number, country_code,
                    street_address, postal_code, city, role
-            FROM users 
+            FROM users
             WHERE user_id = $1
         `;
         const userResult = await pool.query(query, [req.user.userId]);

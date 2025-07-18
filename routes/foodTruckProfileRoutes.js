@@ -1,7 +1,6 @@
 // routes/foodTruckProfileRoutes.js
 const express = require('express');
 const router = express.Router();
-// ZMIANA: Import nowego kontrolera
 const foodTruckProfileController = require('../controllers/foodTruckProfileController'); 
 const authenticateToken = require('../middleware/authenticateToken');
 const multer = require('multer');
@@ -9,18 +8,18 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 } // Limit 10MB na plik
+    limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ZMIANA: Użycie 'gallery_photos' jako nazwy pola i nowego kontrolera
 router.post('/', authenticateToken, upload.array('gallery_photos', 10), foodTruckProfileController.createProfile);
 
-// ZMIANA: Użycie nowego kontrolera
-router.get('/my-profile', authenticateToken, foodTruckProfileController.getMyProfile);
+// ---- ZMIANA TUTAJ ----
+// Zmieniamy ścieżkę na '/my-profiles' i funkcję na 'getMyProfiles'
+router.get('/my-profiles', authenticateToken, foodTruckProfileController.getMyProfiles);
+
+// Pozostałe ścieżki bez zmian
 router.get('/', foodTruckProfileController.getAllProfiles); 
 router.get('/:profileId', foodTruckProfileController.getProfileById);
-
-// ZMIANA: Użycie 'gallery_photos' i nowego kontrolera
 router.put('/:profileId', authenticateToken, upload.array('gallery_photos', 10), foodTruckProfileController.updateProfile);
 
 module.exports = router;

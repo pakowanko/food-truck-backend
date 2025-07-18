@@ -66,7 +66,6 @@ exports.createProfile = async (req, res) => {
         );
         res.status(201).json(newProfile.rows[0]);
     } catch (error) {
-        // OSTATECZNA WERSJA LOGOWANIA, KTÓRA ZŁAPIE WSZYSTKO
         console.error('--- KRYTYCZNY BŁĄD PODCZAS TWORZENIA PROFILU ---');
         console.error('TYP BŁĘDU:', error.name);
         console.error('WIADOMOŚĆ:', error.message);
@@ -75,8 +74,6 @@ exports.createProfile = async (req, res) => {
         res.status(500).json({ message: 'Błąd serwera lub nieprawidłowa lokalizacja.' });
     }
 };
-
-// ... reszta pliku pozostaje bez zmian ...
 
 exports.updateProfile = async (req, res) => {
     console.log(`[Controller: updateProfile] Uruchomiono aktualizację profilu o ID: ${req.params.profileId}`);
@@ -113,21 +110,18 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
-exports.getMyProfile = async (req, res) => {
-    console.log(`[Controller: getMyProfile] Uruchomiono pobieranie własnego profilu dla użytkownika ID: ${req.user.userId}`);
+// ZMIENIONA FUNKCJA
+exports.getMyProfiles = async (req, res) => {
+    console.log(`[Controller: getMyProfiles] Pobieranie profili dla użytkownika ID: ${req.user.userId}`);
     const { userId } = req.user;
     if (!userId) {
         return res.status(403).json({ message: 'Brak autoryzacji.' });
     }
     try {
-        const profile = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1', [userId]);
-        if (profile.rows.length > 0) {
-            res.json(profile.rows[0]);
-        } else {
-            res.status(404).json({ message: 'Nie znaleziono profilu dla tego użytkownika.' });
-        }
+        const profileResult = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1 ORDER BY food_truck_name ASC', [userId]);
+        res.json(profileResult.rows);
     } catch (error) {
-        console.error("Błąd w /api/profiles/my-profile:", error);
+        console.error("Błąd w /api/profiles/my-profiles:", error);
         res.status(500).json({ message: 'Błąd serwera.' });
     }
 };

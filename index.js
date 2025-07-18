@@ -8,7 +8,6 @@ const { Server } = require("socket.io");
 const path = require('path');
 const fs = require('fs');
 const pool = require('./db');
-const gusRoutes = require('./routes/gusRoutes');
 
 const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -18,6 +17,7 @@ const foodTruckProfileRoutes = require('./routes/foodTruckProfileRoutes');
 const bookingRequestRoutes = require('./routes/bookingRequestRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
+const gusRoutes = require('./routes/gusRoutes');
 
 const app = express();
 

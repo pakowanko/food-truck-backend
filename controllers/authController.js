@@ -10,7 +10,9 @@ exports.register = async (req, res) => {
     console.log('[Controller: register] Uruchomiono tworzenie użytkownika.');
     const { 
         email, password, user_type, first_name, last_name, 
-        company_name, nip, phone_number, country_code
+        company_name, nip, phone_number, country_code,
+        // Nowe pola adresowe
+        street_address, postal_code, city
     } = req.body;
 
     if (!email || !password || !user_type) {
@@ -32,9 +34,15 @@ exports.register = async (req, res) => {
             if (user_type === 'food_truck_owner' && process.env.STRIPE_SECRET_KEY) {
                 const customer = await stripe.customers.create({
                     email: email, 
-                    name: `${first_name} ${last_name}`, 
+                    name: company_name || `${first_name} ${last_name}`, 
                     phone: phone_number,
-                    metadata: { company_name: company_name || '', nip: nip || '' }
+                    address: {
+                        line1: street_address,
+                        postal_code: postal_code,
+                        city: city,
+                        country: country_code
+                    },
+                    metadata: { nip: nip || '' }
                 });
                 stripeCustomerId = customer.id;
             }
@@ -44,23 +52,22 @@ exports.register = async (req, res) => {
             const query = `
                 INSERT INTO users (
                     email, password_hash, user_type, first_name, last_name, 
-                    company_name, nip, phone_number, country_code, stripe_customer_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+                    company_name, nip, phone_number, country_code, stripe_customer_id,
+                    street_address, postal_code, city
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) 
                 RETURNING user_id, email, user_type`;
                 
             const values = [
                 email, hashedPassword, user_type, first_name, last_name, 
-                company_name, nip, phone_number, country_code, stripeCustomerId
+                company_name, nip, phone_number, country_code, stripeCustomerId,
+                street_address, postal_code, city
             ];
             
             const newUser = await client.query(query, values);
 
             const msg = {
                 to: email,
-                from: {
-                    email: process.env.SENDER_EMAIL,
-                    name: 'BookTheFoodTruck'
-                },
+                from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
                 subject: 'Witaj w BookTheFoodTruck!',
                 html: `<h1>Cześć ${first_name || ''}!</h1><p>Dziękujemy za rejestrację w naszym serwisie. Możesz teraz w pełni korzystać ze swojego konta.</p>`,
             };
@@ -80,6 +87,7 @@ exports.register = async (req, res) => {
     }
 };
 
+// Funkcja 'login' pozostaje bez zmian
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -88,6 +96,11 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
         const user = userResult.rows[0];
+
+        if (user.is_blocked) {
+            return res.status(403).json({ message: 'Twoje konto zostało zablokowane.' });
+        }
+
         const isMatch = await bcrypt.compare(password, user.password_hash);
         if (!isMatch) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
@@ -101,12 +114,13 @@ exports.login = async (req, res) => {
     }
 };
 
-// JEDYNA ZMIANA JEST TUTAJ
+// Funkcja 'getProfile' pozostaje bez zmian
 exports.getProfile = async (req, res) => {
     try {
         const query = `
             SELECT user_id, email, user_type, first_name, last_name, 
-                   company_name, nip, phone_number, country_code
+                   company_name, nip, phone_number, country_code,
+                   street_address, postal_code, city
             FROM users 
             WHERE user_id = $1
         `;
@@ -114,7 +128,6 @@ exports.getProfile = async (req, res) => {
 
         if (userResult.rows.length > 0) {
             const userProfile = userResult.rows[0];
-            // Przemapowujemy "user_id" na "userId", aby było spójne z logowaniem
             res.json({
                 userId: userProfile.user_id,
                 email: userProfile.email,
@@ -124,7 +137,10 @@ exports.getProfile = async (req, res) => {
                 company_name: userProfile.company_name,
                 nip: userProfile.nip,
                 phone_number: userProfile.phone_number,
-                country_code: userProfile.country_code
+                country_code: userProfile.country_code,
+                street_address: userProfile.street_address,
+                postal_code: userProfile.postal_code,
+                city: userProfile.city
             });
         } else {
             res.status(404).json({ message: 'Nie znaleziono użytkownika.' });

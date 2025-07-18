@@ -2,12 +2,9 @@
 const express = require('express');
 const router = express.Router();
 const gusController = require('../controllers/gusController');
-const authenticateToken = require('../middleware/authenticateToken');
+// Usunęliśmy import 'authenticateToken', bo nie będzie już tu potrzebny
 
-// Dodajemy ten log, aby sprawdzić, czy plik jest w ogóle uruchamiany
-console.log('--- Plik gusRoutes.js został pomyślnie załadowany! ---');
-
-// Definiujemy ścieżkę, która przyjmuje NIP jako parametr
-router.get('/company-data/:nip', authenticateToken, gusController.getCompanyDataByNip);
+// W tej ścieżce nie wymagamy już zalogowania
+router.get('/company-data/:nip', gusController.getCompanyDataByNip);
 
 module.exports = router;

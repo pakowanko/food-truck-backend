@@ -1,4 +1,3 @@
-// index.js (Backend)
 require('dotenv').config();
 
 const express = require('express');
@@ -19,6 +18,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const gusRoutes = require('./routes/gusRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -58,6 +58,7 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/gus', gusRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/users', userRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');

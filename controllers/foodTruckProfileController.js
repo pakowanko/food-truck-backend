@@ -110,7 +110,6 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
-// ZMIENIONA FUNKCJA
 exports.getMyProfiles = async (req, res) => {
     console.log(`[Controller: getMyProfiles] Pobieranie profili dla użytkownika ID: ${req.user.userId}`);
     const { userId } = req.user;
@@ -128,13 +127,10 @@ exports.getMyProfiles = async (req, res) => {
 
 exports.getAllProfiles = async (req, res) => {
     console.log(`[Controller: getAllProfiles] Uruchomiono pobieranie wszystkich profili z filtrami:`, req.query);
-    const { cuisine, postal_code } = req.query;
+    const { cuisine, postal_code, event_date, min_rating } = req.query;
 
     let query = `
-        SELECT 
-            p.*, 
-            COALESCE(AVG(r.rating), 0) as average_rating, 
-            COUNT(r.review_id) as review_count
+        SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
     `;
     const values = [];
     let fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`;
@@ -158,11 +154,22 @@ exports.getAllProfiles = async (req, res) => {
         whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
     }
 
+    if (event_date) {
+        values.push(event_date);
+        whereClauses.push(`p.profile_id NOT IN (SELECT profile_id FROM booking_requests WHERE event_date = $${values.length} AND status = 'confirmed')`);
+    }
+
     query += fromClause;
     if (whereClauses.length > 0) {
         query += ' WHERE ' + whereClauses.join(' AND ');
     }
+    
     query += ' GROUP BY p.profile_id';
+    
+    if (min_rating && parseFloat(min_rating) > 0) {
+        values.push(parseFloat(min_rating));
+        query += ` HAVING COALESCE(AVG(r.rating), 0) >= $${values.length}`;
+    }
     
     if (postal_code) {
         query += ' ORDER BY distance ASC';

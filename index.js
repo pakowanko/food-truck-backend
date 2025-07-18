@@ -18,6 +18,7 @@ const bookingRequestRoutes = require('./routes/bookingRequestRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const gusRoutes = require('./routes/gusRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use('/api/requests', bookingRequestRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/gus', gusRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');

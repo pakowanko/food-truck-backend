@@ -11,7 +11,6 @@ exports.register = async (req, res) => {
     const { 
         email, password, user_type, first_name, last_name, 
         company_name, nip, phone_number, country_code,
-        // Nowe pola adresowe
         street_address, postal_code, city
     } = req.body;
 
@@ -87,7 +86,6 @@ exports.register = async (req, res) => {
     }
 };
 
-// Funkcja 'login' pozostaje bez zmian
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -105,22 +103,24 @@ exports.login = async (req, res) => {
         if (!isMatch) {
             return res.status(401).json({ message: 'Nieprawidłowy email lub hasło.' });
         }
-        const payload = { userId: user.user_id, email: user.email, user_type: user.user_type };
+        
+        const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name });
+        
+        res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name, role: user.role });
+
     } catch (error) {
         console.error('Błąd podczas logowania:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
     }
 };
 
-// Funkcja 'getProfile' pozostaje bez zmian
 exports.getProfile = async (req, res) => {
     try {
         const query = `
             SELECT user_id, email, user_type, first_name, last_name, 
                    company_name, nip, phone_number, country_code,
-                   street_address, postal_code, city
+                   street_address, postal_code, city, role
             FROM users 
             WHERE user_id = $1
         `;
@@ -140,7 +140,8 @@ exports.getProfile = async (req, res) => {
                 country_code: userProfile.country_code,
                 street_address: userProfile.street_address,
                 postal_code: userProfile.postal_code,
-                city: userProfile.city
+                city: userProfile.city,
+                role: userProfile.role
             });
         } else {
             res.status(404).json({ message: 'Nie znaleziono użytkownika.' });

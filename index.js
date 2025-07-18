@@ -8,6 +8,7 @@ const { Server } = require("socket.io");
 const path = require('path');
 const fs = require('fs');
 const pool = require('./db');
+const gusRoutes = require('./routes/gusRoutes');
 
 const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -54,6 +55,7 @@ app.use('/api/profiles', foodTruckProfileRoutes);
 app.use('/api/requests', bookingRequestRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/conversations', conversationRoutes);
+app.use('/api/gus', gusRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');

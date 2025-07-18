@@ -1,5 +1,24 @@
-// controllers/adminController.js
 const pool = require('../db');
+
+exports.getDashboardStats = async (req, res) => {
+    try {
+        const userCount = await pool.query('SELECT COUNT(*) FROM users');
+        const profileCount = await pool.query('SELECT COUNT(*) FROM food_truck_profiles');
+        const bookingCount = await pool.query('SELECT COUNT(*) FROM booking_requests');
+        // Załóżmy, że prowizja to stała kwota, np. 200 zł
+        const commissionSum = await pool.query("SELECT COUNT(*) * 200 as total FROM booking_requests WHERE commission_paid = TRUE");
+
+        res.json({
+            users: userCount.rows[0].count,
+            profiles: profileCount.rows[0].count,
+            bookings: bookingCount.rows[0].count,
+            commission: commissionSum.rows[0].total || 0
+        });
+    } catch (error) {
+        console.error("Błąd pobierania statystyk (admin):", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
 
 exports.getAllUsers = async (req, res) => {
     try {
@@ -63,7 +82,6 @@ exports.updatePackagingStatus = async (req, res) => {
     }
 };
 
-// --- NOWA FUNKCJA ---
 exports.updateCommissionStatus = async (req, res) => {
     const { requestId } = req.params;
     const { commission_paid } = req.body;

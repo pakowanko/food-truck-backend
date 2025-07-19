@@ -94,8 +94,6 @@ exports.updateBookingStatus = async (req, res) => {
         const requestQuery = await client.query(
           `SELECT 
             br.*, 
-            u_owner.country_code, 
-            u_owner.stripe_customer_id,
             u_owner.email as owner_email,
             u_organizer.email as organizer_email, 
             ftp.food_truck_name
@@ -108,6 +106,7 @@ exports.updateBookingStatus = async (req, res) => {
         );
 
         if (requestQuery.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(403).json({ message: 'Nie masz uprawnień do zmiany tej rezerwacji.' });
         }
         
@@ -118,29 +117,6 @@ exports.updateBookingStatus = async (req, res) => {
         );
 
         if (status === 'confirmed') {
-            if (process.env.STRIPE_SECRET_KEY && bookingRequest.stripe_customer_id) {
-                const taxRateQuery = await client.query('SELECT vat_rate FROM tax_rates WHERE country_code = $1', [bookingRequest.country_code]);
-                if (taxRateQuery.rows.length > 0) {
-                    const PLATFORM_COMMISSION_NET = 200.00;
-                    const vatRate = taxRateQuery.rows[0].vat_rate;
-                    const commissionGross = PLATFORM_COMMISSION_NET * (1 + vatRate / 100);
-                    
-                    await stripe.invoiceItems.create({
-                        customer: bookingRequest.stripe_customer_id,
-                        amount: Math.round(commissionGross * 100),
-                        currency: 'pln',
-                        description: `Prowizja za rezerwację #${requestId}`,
-                    });
-                    const invoice = await stripe.invoices.create({
-                        customer: bookingRequest.stripe_customer_id,
-                        collection_method: 'send_invoice',
-                        days_until_due: 7,
-                        auto_advance: true,
-                    });
-                    await stripe.invoices.sendInvoice(invoice.id);
-                }
-            }
-
             if (bookingRequest.organizer_email) {
                 const msg = {
                     to: bookingRequest.organizer_email,
@@ -156,7 +132,7 @@ exports.updateBookingStatus = async (req, res) => {
                     to: bookingRequest.owner_email,
                     from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
                     subject: `Potwierdziłeś rezerwację #${requestId}!`,
-                    html: `<h1>Rezerwacja potwierdzona!</h1><p>Dziękujemy za potwierdzenie rezerwacji. Faktura za naszą prowizję zostanie wkrótce wysłana.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p>`,
+                    html: `<h1>Rezerwacja potwierdzona!</h1><p>Dziękujemy za potwierdzenie rezerwacji.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p>`,
                 };
                 await sgMail.send(msg);
             }
@@ -192,7 +168,67 @@ exports.updateBookingStatus = async (req, res) => {
     }
 };
 
-// Pobieranie rezerwacji
+exports.cancelBooking = async (req, res) => {
+    const { requestId } = req.params;
+    const { userId, user_type } = req.user;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const requestQuery = await client.query(
+            `SELECT br.*, ftp.owner_id, u_owner.email as owner_email, u_organizer.email as organizer_email, ftp.food_truck_name
+             FROM booking_requests br
+             JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id
+             JOIN users u_owner ON ftp.owner_id = u_owner.user_id
+             JOIN users u_organizer ON br.organizer_id = u_organizer.user_id
+             WHERE br.request_id = $1`,
+            [requestId]
+        );
+
+        if (requestQuery.rows.length === 0) {
+            return res.status(404).json({ message: "Nie znaleziono rezerwacji." });
+        }
+
+        const booking = requestQuery.rows[0];
+
+        if (userId !== booking.organizer_id && userId !== booking.owner_id) {
+            return res.status(403).json({ message: "Brak uprawnień do anulowania tej rezerwacji." });
+        }
+
+        const newStatus = user_type === 'organizer' ? 'cancelled_by_organizer' : 'cancelled_by_owner';
+
+        const updatedRequest = await client.query(
+            'UPDATE booking_requests SET status = $1 WHERE request_id = $2 RETURNING *',
+            [newStatus, requestId]
+        );
+
+        const recipientEmail = user_type === 'organizer' ? booking.owner_email : booking.organizer_email;
+        const cancellerRole = user_type === 'organizer' ? 'Organizator' : 'Właściciel Food Trucka';
+
+        const msg = {
+            to: recipientEmail,
+            from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
+            subject: `Rezerwacja #${requestId} dla ${booking.food_truck_name} została ANULOWANA`,
+            html: `<h1>Rezerwacja Anulowana</h1>
+                   <p>Z przykrością informujemy, że rezerwacja #${requestId} dla food trucka <strong>${booking.food_truck_name}</strong>
+                   na wydarzenie w dniu ${new Date(booking.event_start_date).toLocaleDateString()} została anulowana przez: <strong>${cancellerRole}</strong>.</p>
+                   <p>Rezerwacja nie jest już aktywna w systemie.</p>`,
+        };
+        await sgMail.send(msg);
+
+        await client.query('COMMIT');
+        res.json(updatedRequest.rows[0]);
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Błąd podczas anulowania rezerwacji:", error);
+        res.status(500).json({ message: 'Błąd serwera.' });
+    } finally {
+        if (client) client.release();
+    }
+};
+
 exports.getMyBookings = async (req, res) => {
     const userId = req.user.userId;
     const userRole = req.user.user_type;

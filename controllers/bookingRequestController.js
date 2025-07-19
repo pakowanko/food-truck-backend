@@ -1,20 +1,9 @@
 const pool = require('../db');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { createBrandedEmail, sendPackagingReminderEmail } = require('../utils/emailTemplate');
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-// Funkcja pomocnicza do wysyłania przypomnienia
-const sendPackagingReminderEmail = async (recipientEmail, foodTruckName) => {
-    const msg = {
-        to: recipientEmail,
-        from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-        subject: `Przypomnienie: Zamów opakowania dla ${foodTruckName}`,
-        html: `<h1>Pamiętaj o opakowaniach!</h1><p>Zbliża się termin Twojej rezerwacji dla food trucka <strong>${foodTruckName}</strong>.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p><p>Prosimy o złożenie zamówienia z odpowiednim wyprzedzeniem.</p>`,
-    };
-    await sgMail.send(msg);
-    console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
-};
 
 // Tworzenie nowej rezerwacji
 exports.createBookingRequest = async (req, res) => {
@@ -56,14 +45,18 @@ exports.createBookingRequest = async (req, res) => {
         const foodTruckName = ownerEmailQuery.rows[0]?.food_truck_name;
 
         if (ownerEmail) {
+            const title = `Nowa prośba o rezerwację dla ${foodTruckName}!`;
+            const body = `<p>Otrzymałeś nowe zapytanie o rezerwację. Zaloguj się na swoje konto w BookTheFoodTruck, aby zobaczyć szczegóły.</p>`;
+            const finalHtml = createBrandedEmail(title, body);
+            
             const msg = {
                 to: ownerEmail,
                 from: {
                     email: process.env.SENDER_EMAIL,
                     name: 'BookTheFoodTruck'
                 },
-                subject: `Nowa prośba o rezerwację dla ${foodTruckName}!`,
-                html: `<h1>Otrzymałeś nowe zapytanie!</h1><p>Zaloguj się na swoje konto w BookTheFoodTruck, aby zobaczyć szczegóły nowej prośby o rezerwację.</p>`,
+                subject: title,
+                html: finalHtml,
             };
             await sgMail.send(msg);
         }
@@ -118,22 +111,18 @@ exports.updateBookingStatus = async (req, res) => {
 
         if (status === 'confirmed') {
             if (bookingRequest.organizer_email) {
-                const msg = {
-                    to: bookingRequest.organizer_email,
-                    from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-                    subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została POTWIERDZONA!`,
-                    html: `<h1>Rezerwacja Potwierdzona!</h1><p>Dobra wiadomość! Twoja rezerwacja food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została potwierdzona przez właściciela.</p>`,
-                };
+                const title = `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została POTWIERDZONA!`;
+                const body = `<p>Dobra wiadomość! Twoja rezerwacja food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została potwierdzona przez właściciela.</p>`;
+                const finalHtml = createBrandedEmail(title, body);
+                const msg = { to: bookingRequest.organizer_email, from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' }, subject: title, html: finalHtml };
                 await sgMail.send(msg);
             }
 
             if (bookingRequest.owner_email) {
-                const msg = {
-                    to: bookingRequest.owner_email,
-                    from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-                    subject: `Potwierdziłeś rezerwację #${requestId}!`,
-                    html: `<h1>Rezerwacja potwierdzona!</h1><p>Dziękujemy za potwierdzenie rezerwacji.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p>`,
-                };
+                const title = `Potwierdziłeś rezerwację #${requestId}!`;
+                const body = `<p>Dziękujemy za potwierdzenie rezerwacji.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p>`;
+                const finalHtml = createBrandedEmail(title, body);
+                const msg = { to: bookingRequest.owner_email, from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' }, subject: title, html: finalHtml };
                 await sgMail.send(msg);
             }
 
@@ -147,12 +136,10 @@ exports.updateBookingStatus = async (req, res) => {
         
         } else if (status === 'rejected_by_owner') {
             if (bookingRequest.organizer_email) {
-                const msg = {
-                    to: bookingRequest.organizer_email,
-                    from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-                    subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została odrzucona`,
-                    html: `<h1>Rezerwacja Odrzucona</h1><p>Niestety, Twoja rezerwacja dla food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została odrzucona przez właściciela.</p><p>Zachęcamy do wyszukania innego food trucka na naszej platformie!</p>`,
-                };
+                const title = `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została odrzucona`;
+                const body = `<p>Niestety, Twoja rezerwacja dla food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została odrzucona przez właściciela.</p><p>Zachęcamy do wyszukania innego food trucka na naszej platformie!</p>`;
+                const finalHtml = createBrandedEmail(title, body);
+                const msg = { to: bookingRequest.organizer_email, from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' }, subject: title, html: finalHtml };
                 await sgMail.send(msg);
             }
         }
@@ -206,14 +193,19 @@ exports.cancelBooking = async (req, res) => {
         const recipientEmail = user_type === 'organizer' ? booking.owner_email : booking.organizer_email;
         const cancellerRole = user_type === 'organizer' ? 'Organizator' : 'Właściciel Food Trucka';
 
+        const title = `Rezerwacja #${requestId} dla ${booking.food_truck_name} została ANULOWANA`;
+        const body = `
+           <p>Z przykrością informujemy, że rezerwacja #${requestId} dla food trucka <strong>${booking.food_truck_name}</strong>
+           na wydarzenie w dniu ${new Date(booking.event_start_date).toLocaleDateString()} została anulowana przez: <strong>${cancellerRole}</strong>.</p>
+           <p>Rezerwacja nie jest już aktywna w systemie.</p>
+        `;
+        const finalHtml = createBrandedEmail(title, body);
+
         const msg = {
             to: recipientEmail,
             from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-            subject: `Rezerwacja #${requestId} dla ${booking.food_truck_name} została ANULOWANA`,
-            html: `<h1>Rezerwacja Anulowana</h1>
-                   <p>Z przykrością informujemy, że rezerwacja #${requestId} dla food trucka <strong>${booking.food_truck_name}</strong>
-                   na wydarzenie w dniu ${new Date(booking.event_start_date).toLocaleDateString()} została anulowana przez: <strong>${cancellerRole}</strong>.</p>
-                   <p>Rezerwacja nie jest już aktywna w systemie.</p>`,
+            subject: title,
+            html: finalHtml,
         };
         await sgMail.send(msg);
 
@@ -232,30 +224,28 @@ exports.cancelBooking = async (req, res) => {
 exports.getMyBookings = async (req, res) => {
     const userId = req.user.userId;
     const userRole = req.user.user_type;
+    const client = await pool.connect();
     try {
-        const client = await pool.connect();
-        try {
-            let query;
-            const values = [userId];
+        let query;
+        const values = [userId];
 
-            if (userRole === 'organizer') {
-                query = `SELECT br.*, ftp.food_truck_name, ftp.owner_id FROM booking_requests br JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id WHERE br.organizer_id = $1 ORDER BY br.created_at DESC`;
-            } else { // food_truck_owner
-                query = `SELECT br.*, u.email as organizer_email, u.first_name as organizer_first_name, u.last_name as organizer_last_name, br.organizer_id, br.organizer_phone 
-                         FROM booking_requests br 
-                         JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id 
-                         JOIN users u ON br.organizer_id = u.user_id 
-                         WHERE ftp.owner_id = $1 
-                         ORDER BY br.created_at DESC`;
-            }
-            
-            const requests = await client.query(query, values);
-            res.json(requests.rows);
-        } finally {
-            client.release();
+        if (userRole === 'organizer') {
+            query = `SELECT br.*, ftp.food_truck_name, ftp.owner_id FROM booking_requests br JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id WHERE br.organizer_id = $1 ORDER BY br.created_at DESC`;
+        } else { // food_truck_owner
+            query = `SELECT br.*, u.email as organizer_email, u.first_name as organizer_first_name, u.last_name as organizer_last_name, br.organizer_id, br.organizer_phone 
+                     FROM booking_requests br 
+                     JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id 
+                     JOIN users u ON br.organizer_id = u.user_id 
+                     WHERE ftp.owner_id = $1 
+                     ORDER BY br.created_at DESC`;
         }
+        
+        const requests = await client.query(query, values);
+        res.json(requests.rows);
     } catch (error) {
         console.error("Błąd pobierania rezerwacji:", error);
         res.status(500).json({ message: 'Błąd serwera.' });
+    } finally {
+        client.release();
     }
 };

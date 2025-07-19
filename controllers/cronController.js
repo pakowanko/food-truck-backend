@@ -1,19 +1,6 @@
 const pool = require('../db');
-const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-const sendPackagingReminderEmail = async (recipientEmail, foodTruckName) => {
-    const msg = {
-        to: recipientEmail,
-        from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-        subject: `Przypomnienie: Zamów opakowania dla ${foodTruckName}`,
-        html: `<h1>Pamiętaj o opakowaniach!</h1><p>Zbliża się termin Twojej rezerwacji dla food trucka <strong>${foodTruckName}</strong>.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p><p>Prosimy o złożenie zamówienia z odpowiednim wyprzedzeniem.</p>`,
-    };
-    await sgMail.send(msg);
-    console.log(`[Cron] Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
-};
+const { sendPackagingReminderEmail } = require('../utils/emailTemplate');
 
 exports.sendDailyReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień.');
@@ -63,7 +50,7 @@ exports.generateDailyInvoices = async (req, res) => {
             return res.status(200).send('Brak rezerwacji do zafakturowania.');
         }
 
-        const taxRateQuery = await pool.query('SELECT vat_rate FROM tax_rates WHERE country_code = $1', ['PL']); // Zakładamy na razie Polskę
+        const taxRateQuery = await pool.query('SELECT vat_rate FROM tax_rates WHERE country_code = $1', ['PL']);
         if (taxRateQuery.rows.length === 0) {
             console.error('[Cron] Nie znaleziono stawki podatkowej dla PL.');
             return res.status(500).send('Brak stawki podatkowej.');

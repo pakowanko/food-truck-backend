@@ -21,6 +21,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
 const cronRoutes = require('./routes/cronRoutes');
 const { censorContactInfo } = require('./utils/censor');
+const { createBrandedEmail } = require('./utils/emailTemplate');
 
 const app = express();
 
@@ -123,14 +124,18 @@ io.on('connection', (socket) => {
                 const senderName = sender?.company_name || sender?.first_name || 'Użytkownik';
 
                 if (recipient?.email) {
+                    const title = `Masz nową wiadomość od ${senderName}`;
+                    const body = `<h1>Otrzymałeś nową wiadomość!</h1><p><strong>${senderName}</strong> napisał do Ciebie na czacie.</p><p>Zaloguj się na swoje konto, aby ją odczytać.</p>`;
+                    const finalHtml = createBrandedEmail(title, body);
+
                     const msg = {
                         to: recipient.email,
                         from: {
                             email: process.env.SENDER_EMAIL,
                             name: 'BookTheFoodTruck'
                         },
-                        subject: `Masz nową wiadomość od ${senderName}`,
-                        html: `<h1>Otrzymałeś nową wiadomość!</h1><p><strong>${senderName}</strong> napisał do Ciebie na czacie.</p><p>Zaloguj się na swoje konto, aby ją odczytać.</p>`,
+                        subject: title,
+                        html: finalHtml
                     };
                     await sgMail.send(msg);
                     console.log(`Wysłano powiadomienie email o nowej wiadomości do ${recipient.email}`);

@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const sgMail = require('@sendgrid/mail');
+const { createBrandedEmail } = require('../utils/emailTemplate');
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -65,14 +66,23 @@ exports.register = async (req, res) => {
         await client.query(query, values);
 
         const verificationUrl = `https://pakowanko-1723651322373.web.app/verify-email?token=${verificationToken}`;
+        
+        const emailTitle = 'Potwierdź swoje konto w BookTheFoodTruck';
+        const emailBody = `
+            <p>Dziękujemy za rejestrację. Proszę, kliknij w poniższy przycisk, aby aktywować swoje konto:</p>
+            <a href="${verificationUrl}" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+                Aktywuj konto
+            </a>
+            <p>Jeśli przycisk nie działa, skopiuj i wklej ten link do przeglądarki:<br>${verificationUrl}</p>
+        `;
+        
+        const finalHtml = createBrandedEmail(emailTitle, emailBody);
+
         const msg = {
             to: email,
             from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
-            subject: 'Potwierdź swoje konto w BookTheFoodTruck',
-            html: `<h1>Witaj w BookTheFoodTruck!</h1>
-                   <p>Dziękujemy za rejestrację. Proszę, kliknij w poniższy link, aby aktywować swoje konto:</p>
-                   <a href="${verificationUrl}" style="padding: 10px 15px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px;">Aktywuj konto</a>
-                   <p>Jeśli przycisk nie działa, skopiuj i wklej ten link do przeglądarki: ${verificationUrl}</p>`,
+            subject: emailTitle,
+            html: finalHtml
         };
         await sgMail.send(msg);
         

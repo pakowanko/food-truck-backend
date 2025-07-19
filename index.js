@@ -20,6 +20,7 @@ const gusRoutes = require('./routes/gusRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
 const cronRoutes = require('./routes/cronRoutes');
+const { censorContactInfo } = require('./utils/censor');
 
 const app = express();
 
@@ -81,8 +82,10 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', async (data) => {
     const { conversation_id, sender_id, message_content } = data;
+    const censoredMessage = censorContactInfo(message_content);
+
     try {
-        const newMessageQuery = await pool.query( 'INSERT INTO messages (conversation_id, sender_id, message_content) VALUES ($1, $2, $3) RETURNING *', [conversation_id, sender_id, message_content]);
+        const newMessageQuery = await pool.query( 'INSERT INTO messages (conversation_id, sender_id, message_content) VALUES ($1, $2, $3) RETURNING *', [conversation_id, sender_id, censoredMessage]);
         const newMessage = newMessageQuery.rows[0];
         
         io.to(conversation_id).emit('receive_message', newMessage);
@@ -99,7 +102,7 @@ io.on('connection', (socket) => {
 
                 const notificationData = {
                     senderName: senderName,
-                    messagePreview: message_content.substring(0, 50) + '...',
+                    messagePreview: censoredMessage.substring(0, 50) + '...',
                     conversationId: conversation_id
                 };
                 
@@ -108,7 +111,6 @@ io.on('connection', (socket) => {
             }
         }
 
-        // Logika wysyłki maila (jeśli odbiorca jest offline)
         const roomSockets = await io.in(conversation_id).allSockets();
         if (roomSockets.size <= 1) {
             const recipientId = participantIds.find(id => id !== sender_id);

@@ -127,7 +127,7 @@ exports.getMyProfiles = async (req, res) => {
 
 exports.getAllProfiles = async (req, res) => {
     console.log(`[Controller: getAllProfiles] Uruchomiono pobieranie wszystkich profili z filtrami:`, req.query);
-    const { cuisine, postal_code, event_date, min_rating } = req.query;
+    const { cuisine, postal_code, event_date, min_rating, long_term_rental } = req.query;
 
     let query = `
         SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
@@ -157,6 +157,10 @@ exports.getAllProfiles = async (req, res) => {
     if (event_date) {
         values.push(event_date);
         whereClauses.push(`p.profile_id NOT IN (SELECT profile_id FROM booking_requests WHERE event_date = $${values.length} AND status = 'confirmed')`);
+    }
+    
+    if (long_term_rental === 'true') {
+        whereClauses.push(`p.long_term_rental_available = TRUE`);
     }
 
     query += fromClause;

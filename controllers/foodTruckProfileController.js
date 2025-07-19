@@ -127,7 +127,11 @@ exports.getMyProfiles = async (req, res) => {
 
 exports.getAllProfiles = async (req, res) => {
     console.log(`[Controller: getAllProfiles] Uruchomiono pobieranie wszystkich profili z filtrami:`, req.query);
-    const { cuisine, postal_code, event_date, min_rating, long_term_rental } = req.query;
+    const { 
+        cuisine, postal_code, 
+        event_start_date, event_end_date,
+        min_rating, long_term_rental 
+    } = req.query;
 
     let query = `
         SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
@@ -154,9 +158,15 @@ exports.getAllProfiles = async (req, res) => {
         whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
     }
 
-    if (event_date) {
-        values.push(event_date);
-        whereClauses.push(`p.profile_id NOT IN (SELECT profile_id FROM booking_requests WHERE event_date = $${values.length} AND status = 'confirmed')`);
+    if (event_start_date && event_end_date) {
+        values.push(event_start_date, event_end_date);
+        whereClauses.push(`
+            p.profile_id NOT IN (
+                SELECT profile_id FROM booking_requests 
+                WHERE status = 'confirmed' AND 
+                (event_start_date, event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE)
+            )
+        `);
     }
     
     if (long_term_rental === 'true') {

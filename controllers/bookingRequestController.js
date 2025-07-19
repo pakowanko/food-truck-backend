@@ -4,11 +4,23 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+// Funkcja pomocnicza do wysyłania przypomnienia
+const sendPackagingReminderEmail = async (recipientEmail, foodTruckName) => {
+    const msg = {
+        to: recipientEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
+        subject: `Przypomnienie: Zamów opakowania dla ${foodTruckName}`,
+        html: `<h1>Pamiętaj o opakowaniach!</h1><p>Zbliża się termin Twojej rezerwacji dla food trucka <strong>${foodTruckName}</strong>.</p><p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p><p>Prosimy o złożenie zamówienia z odpowiednim wyprzedzeniem.</p>`,
+    };
+    await sgMail.send(msg);
+    console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
+};
+
 // Tworzenie nowej rezerwacji
 exports.createBookingRequest = async (req, res) => {
     console.log('[Controller: createBookingRequest] Uruchomiono tworzenie rezerwacji.');
     const { 
-        profile_id, event_date, event_description,
+        profile_id, event_start_date, event_end_date, event_description,
         event_type, guest_count, event_location, event_time,
         utility_costs
     } = req.body;
@@ -24,12 +36,12 @@ exports.createBookingRequest = async (req, res) => {
 
         const newRequestQuery = await client.query(
             `INSERT INTO booking_requests (
-                profile_id, organizer_id, event_date, event_description, status,
+                profile_id, organizer_id, event_start_date, event_end_date, event_description, status,
                 organizer_phone, event_type, guest_count,
                 event_location, event_time, utility_costs
-            ) VALUES ($1, $2, $3, $4, 'pending_owner_approval', $5, $6, $7, $8, $9, $10) RETURNING *`,
+            ) VALUES ($1, $2, $3, $4, $5, 'pending_owner_approval', $6, $7, $8, $9, $10, $11) RETURNING *`,
             [
-                profile_id, organizerId, event_date, event_description,
+                profile_id, organizerId, event_start_date, event_end_date, event_description,
                 organizerPhone, event_type, parseInt(guest_count) || null,
                 event_location, event_time, parseFloat(utility_costs) || null
             ]
@@ -134,7 +146,7 @@ exports.updateBookingStatus = async (req, res) => {
                     to: bookingRequest.organizer_email,
                     from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
                     subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została POTWIERDZONA!`,
-                    html: `<h1>Rezerwacja Potwierdzona!</h1><p>Dobra wiadomość! Twoja rezerwacja food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_date).toLocaleDateString()} została potwierdzona przez właściciela.</p>`,
+                    html: `<h1>Rezerwacja Potwierdzona!</h1><p>Dobra wiadomość! Twoja rezerwacja food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została potwierdzona przez właściciela.</p>`,
                 };
                 await sgMail.send(msg);
             }
@@ -148,6 +160,14 @@ exports.updateBookingStatus = async (req, res) => {
                 };
                 await sgMail.send(msg);
             }
+
+            const today = new Date();
+            const eventDate = new Date(bookingRequest.event_start_date);
+            const daysUntilEvent = (eventDate.getTime() - today.getTime()) / (1000 * 3600 * 24);
+
+            if (daysUntilEvent <= 7) {
+                await sendPackagingReminderEmail(bookingRequest.owner_email, bookingRequest.food_truck_name);
+            }
         
         } else if (status === 'rejected_by_owner') {
             if (bookingRequest.organizer_email) {
@@ -155,7 +175,7 @@ exports.updateBookingStatus = async (req, res) => {
                     to: bookingRequest.organizer_email,
                     from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
                     subject: `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została odrzucona`,
-                    html: `<h1>Rezerwacja Odrzucona</h1><p>Niestety, Twoja rezerwacja dla food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_date).toLocaleDateString()} została odrzucona przez właściciela.</p><p>Zachęcamy do wyszukania innego food trucka na naszej platformie!</p>`,
+                    html: `<h1>Rezerwacja Odrzucona</h1><p>Niestety, Twoja rezerwacja dla food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została odrzucona przez właściciela.</p><p>Zachęcamy do wyszukania innego food trucka na naszej platformie!</p>`,
                 };
                 await sgMail.send(msg);
             }

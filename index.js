@@ -19,6 +19,7 @@ const conversationRoutes = require('./routes/conversationRoutes');
 const gusRoutes = require('./routes/gusRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
+const cronRoutes = require('./routes/cronRoutes');
 
 const app = express();
 
@@ -59,17 +60,23 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/gus', gusRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/cron', cronRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');
 });
 
 io.on('connection', (socket) => {
-  console.log('✅ Użytkownik połączył się z komunikatorem:', socket.id);
+  console.log('✅ Użytkownik połączył się z Socket.IO:', socket.id);
+
+  socket.on('register_user', (userId) => {
+    socket.join(userId.toString());
+    console.log(`Użytkownik ${socket.id} zarejestrowany w prywatnym pokoju ${userId}`);
+  });
   
   socket.on('join_room', (conversationId) => {
     socket.join(conversationId);
-    console.log(`Użytkownik ${socket.id} dołączył do pokoju ${conversationId}`);
+    console.log(`Użytkownik ${socket.id} dołączył do pokoju czatu ${conversationId}`);
   });
 
   socket.on('send_message', async (data) => {
@@ -80,34 +87,51 @@ io.on('connection', (socket) => {
         
         io.to(conversation_id).emit('receive_message', newMessage);
 
+        const conversationQuery = await pool.query('SELECT participant_ids FROM conversations WHERE conversation_id = $1', [conversation_id]);
+        const participantIds = conversationQuery.rows[0]?.participant_ids;
+        
+        if (participantIds) {
+            const recipientId = participantIds.find(id => id !== sender_id);
+            if (recipientId) {
+                const senderQuery = await pool.query('SELECT first_name, company_name FROM users WHERE user_id = $1', [sender_id]);
+                const sender = senderQuery.rows[0];
+                const senderName = sender?.company_name || sender?.first_name || 'Użytkownik';
+
+                const notificationData = {
+                    senderName: senderName,
+                    messagePreview: message_content.substring(0, 50) + '...',
+                    conversationId: conversation_id
+                };
+                
+                io.to(recipientId.toString()).emit('new_message_notification', notificationData);
+                console.log(`Wysłano powiadomienie o wiadomości do użytkownika ${recipientId}`);
+            }
+        }
+
+        // Logika wysyłki maila (jeśli odbiorca jest offline)
         const roomSockets = await io.in(conversation_id).allSockets();
         if (roomSockets.size <= 1) {
-            const conversationQuery = await pool.query('SELECT participant_ids FROM conversations WHERE conversation_id = $1', [conversation_id]);
-            const participantIds = conversationQuery.rows[0]?.participant_ids;
-            
-            if (participantIds) {
-                const recipientId = participantIds.find(id => id !== sender_id);
-                if (recipientId) {
-                    const recipientQuery = await pool.query('SELECT email, first_name FROM users WHERE user_id = $1', [recipientId]);
-                    const senderQuery = await pool.query('SELECT first_name, company_name FROM users WHERE user_id = $1', [sender_id]);
-                    
-                    const recipient = recipientQuery.rows[0];
-                    const sender = senderQuery.rows[0];
-                    const senderName = sender?.company_name || sender?.first_name || 'Użytkownik';
+            const recipientId = participantIds.find(id => id !== sender_id);
+            if (recipientId) {
+                const recipientQuery = await pool.query('SELECT email, first_name FROM users WHERE user_id = $1', [recipientId]);
+                const senderQuery = await pool.query('SELECT first_name, company_name FROM users WHERE user_id = $1', [sender_id]);
+                
+                const recipient = recipientQuery.rows[0];
+                const sender = senderQuery.rows[0];
+                const senderName = sender?.company_name || sender?.first_name || 'Użytkownik';
 
-                    if (recipient?.email) {
-                        const msg = {
-                            to: recipient.email,
-                            from: {
-                                email: process.env.SENDER_EMAIL,
-                                name: 'BookTheFoodTruck'
-                            },
-                            subject: `Masz nową wiadomość od ${senderName}`,
-                            html: `<h1>Otrzymałeś nową wiadomość!</h1><p><strong>${senderName}</strong> napisał do Ciebie na czacie.</p><p>Zaloguj się na swoje konto, aby ją odczytać.</p>`,
-                        };
-                        await sgMail.send(msg);
-                        console.log(`Wysłano powiadomienie email o nowej wiadomości do ${recipient.email}`);
-                    }
+                if (recipient?.email) {
+                    const msg = {
+                        to: recipient.email,
+                        from: {
+                            email: process.env.SENDER_EMAIL,
+                            name: 'BookTheFoodTruck'
+                        },
+                        subject: `Masz nową wiadomość od ${senderName}`,
+                        html: `<h1>Otrzymałeś nową wiadomość!</h1><p><strong>${senderName}</strong> napisał do Ciebie na czacie.</p><p>Zaloguj się na swoje konto, aby ją odczytać.</p>`,
+                    };
+                    await sgMail.send(msg);
+                    console.log(`Wysłano powiadomienie email o nowej wiadomości do ${recipient.email}`);
                 }
             }
         }

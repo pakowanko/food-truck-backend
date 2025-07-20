@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
-const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emailTemplate');
+const { sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail } = require('../utils/emailTemplate');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -128,7 +128,7 @@ exports.login = async (req, res) => {
         const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
         
-        res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name, role: user.role });
+        res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name, role: user.role, first_name: user.first_name });
 
     } catch (error) {
         console.error('Błąd podczas logowania:', error);
@@ -160,6 +160,7 @@ exports.googleLogin = async (req, res) => {
                 [email, hashedPassword, given_name, family_name]
             );
             user = newUserQuery.rows[0];
+            await sendGoogleWelcomeEmail(email, given_name);
         }
 
         if (user.is_blocked) {

@@ -52,7 +52,6 @@ function createBrandedEmail(title, bodyHtml) {
     `;
 }
 
-// Funkcja do wysyłania maila weryfikacyjnego
 async function sendVerificationEmail(recipientEmail, token) {
     const verificationUrl = `${APP_URL}/verify-email?token=${token}`;
     const title = 'Potwierdź swoje konto w Book The Food Truck';
@@ -74,7 +73,6 @@ async function sendVerificationEmail(recipientEmail, token) {
     await sgMail.send(msg);
 }
 
-// Funkcja do wysyłania maila z resetem hasła
 async function sendPasswordResetEmail(recipientEmail, token) {
     const resetUrl = `${APP_URL}/reset-password?token=${token}`;
     const title = 'Prośba o zresetowanie hasła';
@@ -98,4 +96,25 @@ async function sendPasswordResetEmail(recipientEmail, token) {
     console.log(`Wysłano link do resetu hasła na adres ${recipientEmail}`);
 }
 
-module.exports = { createBrandedEmail, sendVerificationEmail, sendPasswordResetEmail };
+async function sendGoogleWelcomeEmail(recipientEmail, firstName) {
+    const title = `Witaj w Book The Food Truck, ${firstName}!`;
+    const body = `
+        <p>Twoje konto zostało pomyślnie utworzone za pomocą Google.</p>
+        <p>Możesz teraz w pełni korzystać z platformy, wyszukiwać food trucki i dokonywać rezerwacji.</p>
+        <a href="${APP_URL}" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+            Przejdź do aplikacji
+        </a>
+    `;
+    const finalHtml = createBrandedEmail(title, body);
+
+    const msg = {
+        to: recipientEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'Book The Food Truck' },
+        subject: title,
+        html: finalHtml,
+    };
+    await sgMail.send(msg);
+    console.log(`Wysłano maila powitalnego (Google) na adres ${recipientEmail}`);
+}
+
+module.exports = { createBrandedEmail, sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail };

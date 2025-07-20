@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const sgMail = require('@sendgrid/mail');
-const { createBrandedEmail } = require('../utils/emailTemplate');
+const { createBrandedEmail, sendPasswordResetEmail } = require('../utils/emailTemplate');
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -185,5 +185,57 @@ exports.getProfile = async (req, res) => {
     } catch (error) {
         console.error('Błąd podczas pobierania profilu:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
+    }
+};
+
+exports.requestPasswordReset = async (req, res) => {
+    const { email } = req.body;
+    try {
+        const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (userResult.rows.length === 0) {
+            return res.json({ message: 'Jeśli konto o podanym adresie email istnieje, link do resetu hasła został wysłany.' });
+        }
+        
+        const user = userResult.rows[0];
+        const token = crypto.randomBytes(32).toString('hex');
+        const expires = new Date(Date.now() + 3600000); // Token ważny 1 godzinę
+
+        await pool.query(
+            'UPDATE users SET reset_password_token = $1, reset_password_expires = $2 WHERE user_id = $3',
+            [token, expires, user.user_id]
+        );
+
+        await sendPasswordResetEmail(user.email, token);
+        res.json({ message: 'Jeśli konto o podanym adresie email istnieje, link do resetu hasła został wysłany.' });
+    } catch (error) {
+        console.error("Błąd podczas prośby o reset hasła:", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+exports.resetPassword = async (req, res) => {
+    const { token, newPassword } = req.body;
+    try {
+        const userResult = await pool.query(
+            'SELECT * FROM users WHERE reset_password_token = $1 AND reset_password_expires > NOW()',
+            [token]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(400).json({ message: 'Token do resetu hasła jest nieprawidłowy lub wygasł.' });
+        }
+        
+        const user = userResult.rows[0];
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await pool.query(
+            'UPDATE users SET password_hash = $1, reset_password_token = NULL, reset_password_expires = NULL WHERE user_id = $2',
+            [hashedPassword, user.user_id]
+        );
+
+        res.json({ message: 'Hasło zostało pomyślnie zmienione.' });
+    } catch (error) {
+        console.error("Błąd podczas resetowania hasła:", error);
+        res.status(500).json({ message: "Błąd serwera." });
     }
 };

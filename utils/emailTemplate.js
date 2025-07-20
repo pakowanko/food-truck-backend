@@ -61,4 +61,27 @@ async function sendPackagingReminderEmail(recipientEmail, foodTruckName) {
     console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
 }
 
-module.exports = { createBrandedEmail, sendPackagingReminderEmail };
+async function sendPasswordResetEmail(recipientEmail, token) {
+    const resetUrl = `https://pakowanko-1723651322373.web.app/reset-password?token=${token}`;
+    const title = 'Prośba o zresetowanie hasła';
+    const body = `
+        <p>Otrzymaliśmy prośbę o zresetowanie hasła dla Twojego konta.</p>
+        <p>Kliknij w poniższy przycisk, aby ustawić nowe hasło. Link jest ważny przez jedną godzinę.</p>
+        <a href="${resetUrl}" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+            Zresetuj hasło
+        </a>
+        <p>Jeśli nie prosiłeś o zmianę hasła, zignoruj tę wiadomość.</p>
+    `;
+    const finalHtml = createBrandedEmail(title, body);
+
+    const msg = {
+        to: recipientEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' },
+        subject: title,
+        html: finalHtml,
+    };
+    await sgMail.send(msg);
+    console.log(`Wysłano link do resetu hasła na adres ${recipientEmail}`);
+}
+
+module.exports = { createBrandedEmail, sendPackagingReminderEmail, sendPasswordResetEmail };

@@ -1,4 +1,3 @@
-// routes/adminRoutes.js
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
@@ -7,11 +6,12 @@ const authorizeAdmin = require('../middleware/authorizeAdmin');
 
 const isAdmin = [authenticateToken, authorizeAdmin];
 
-// --- NOWA ŚCIEŻKA ---
 router.get('/stats', isAdmin, adminController.getDashboardStats);
 
 router.get('/users', isAdmin, adminController.getAllUsers);
 router.put('/users/:userId/toggle-block', isAdmin, adminController.toggleUserBlock);
+router.put('/users/:userId', isAdmin, adminController.updateUser);
+router.delete('/users/:userId', isAdmin, adminController.deleteUser);
 
 router.get('/bookings', isAdmin, adminController.getAllBookings);
 router.put('/bookings/:requestId/packaging-status', isAdmin, adminController.updatePackagingStatus);

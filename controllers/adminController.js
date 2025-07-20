@@ -1,11 +1,11 @@
 const pool = require('../db');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.getDashboardStats = async (req, res) => {
     try {
         const userCount = await pool.query('SELECT COUNT(*) FROM users');
         const profileCount = await pool.query('SELECT COUNT(*) FROM food_truck_profiles');
         const bookingCount = await pool.query('SELECT COUNT(*) FROM booking_requests');
-        // Załóżmy, że prowizja to stała kwota, np. 200 zł
         const commissionSum = await pool.query("SELECT COUNT(*) * 200 as total FROM booking_requests WHERE commission_paid = TRUE");
 
         res.json({
@@ -22,7 +22,7 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
     try {
-        const result = await pool.query('SELECT user_id, email, user_type, first_name, last_name, company_name, is_blocked, role FROM users ORDER BY user_id ASC');
+        const result = await pool.query('SELECT user_id, email, user_type, first_name, last_name, company_name, nip, street_address, postal_code, city, is_blocked, role FROM users ORDER BY user_id ASC');
         res.json(result.rows);
     } catch (error) {
         console.error("Błąd pobierania użytkowników (admin):", error);
@@ -61,6 +61,73 @@ exports.toggleUserBlock = async (req, res) => {
     } catch (error) {
         console.error("Błąd zmiany statusu blokady użytkownika:", error);
         res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+exports.updateUser = async (req, res) => {
+    const { userId } = req.params;
+    const { company_name, nip, street_address, postal_code, city, user_type } = req.body;
+
+    try {
+        const result = await pool.query(
+            `UPDATE users SET 
+                company_name = $1, 
+                nip = $2, 
+                street_address = $3, 
+                postal_code = $4, 
+                city = $5,
+                user_type = $6
+             WHERE user_id = $7 RETURNING *`,
+            [company_name, nip, street_address, postal_code, city, user_type, userId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("Błąd aktualizacji użytkownika przez admina:", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    const { userId } = req.params;
+    
+    if (parseInt(userId, 10) === req.user.userId) {
+        return res.status(400).json({ message: "Nie możesz usunąć własnego konta administratora." });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        const profiles = await client.query('SELECT profile_id FROM food_truck_profiles WHERE owner_id = $1', [userId]);
+        if (profiles.rows.length > 0) {
+            const profileIds = profiles.rows.map(p => p.profile_id);
+            await client.query('DELETE FROM reviews WHERE profile_id = ANY($1::int[])', [profileIds]);
+            await client.query('DELETE FROM booking_requests WHERE profile_id = ANY($1::int[])', [profileIds]);
+            await client.query('DELETE FROM food_truck_profiles WHERE owner_id = $1', [userId]);
+        }
+
+        await client.query('DELETE FROM reviews WHERE organizer_id = $1', [userId]);
+        await client.query('DELETE FROM booking_requests WHERE organizer_id = $1', [userId]);
+        await client.query('DELETE FROM messages WHERE sender_id = $1', [userId]);
+        await client.query('DELETE FROM conversations WHERE $1 = ANY(participant_ids)', [userId]);
+
+        const deleteResult = await client.query('DELETE FROM users WHERE user_id = $1', [userId]);
+        if (deleteResult.rowCount === 0) {
+            throw new Error('Nie znaleziono użytkownika do usunięcia.');
+        }
+
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Użytkownik i wszystkie jego dane zostały pomyślnie usunięte.' });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Błąd podczas usuwania użytkownika przez admina:", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    } finally {
+        client.release();
     }
 };
 

@@ -2,6 +2,7 @@ const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { OAuth2Client } = require('google-auth-library');
 const { createBrandedEmail, sendPasswordResetEmail } = require('../utils/emailTemplate');
 const sgMail = require('@sendgrid/mail');

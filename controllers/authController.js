@@ -2,11 +2,14 @@ const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const sgMail = require('@sendgrid/mail');
+const { OAuth2Client } = require('google-auth-library');
 const { createBrandedEmail, sendPasswordResetEmail } = require('../utils/emailTemplate');
+const sgMail = require('@sendgrid/mail');
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+const GOOGLE_CLIENT_ID = '1035693089076-606q1auo4o0cb62lmj21djqeqjvor4pj.apps.googleusercontent.com';
+const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 exports.register = async (req, res) => {
     const { 
@@ -19,13 +22,13 @@ exports.register = async (req, res) => {
         return res.status(400).json({ message: 'Podstawowe pola są wymagane.' });
     }
 
-    const client = await pool.connect();
+    const dbClient = await pool.connect();
     try {
-        await client.query('BEGIN');
+        await dbClient.query('BEGIN');
 
-        const existingUser = await client.query('SELECT * FROM users WHERE email = $1', [email]);
+        const existingUser = await dbClient.query('SELECT * FROM users WHERE email = $1', [email]);
         if (existingUser.rows.length > 0) {
-            await client.query('ROLLBACK');
+            await dbClient.query('ROLLBACK');
             return res.status(409).json({ message: 'Użytkownik o tym adresie email już istnieje.' });
         }
 
@@ -63,10 +66,9 @@ exports.register = async (req, res) => {
             street_address, postal_code, city, verificationToken
         ];
         
-        await client.query(query, values);
+        await dbClient.query(query, values);
 
         const verificationUrl = `https://pakowanko-1723651322373.web.app/verify-email?token=${verificationToken}`;
-        
         const emailTitle = 'Potwierdź swoje konto w BookTheFoodTruck';
         const emailBody = `
             <p>Dziękujemy za rejestrację. Proszę, kliknij w poniższy przycisk, aby aktywować swoje konto:</p>
@@ -75,7 +77,6 @@ exports.register = async (req, res) => {
             </a>
             <p>Jeśli przycisk nie działa, skopiuj i wklej ten link do przeglądarki:<br>${verificationUrl}</p>
         `;
-        
         const finalHtml = createBrandedEmail(emailTitle, emailBody);
 
         const msg = {
@@ -86,14 +87,14 @@ exports.register = async (req, res) => {
         };
         await sgMail.send(msg);
         
-        await client.query('COMMIT');
+        await dbClient.query('COMMIT');
         res.status(201).json({ message: 'Rejestracja pomyślna. Sprawdź swój e-mail, aby aktywować konto.' });
     } catch (error) {
-        await client.query('ROLLBACK');
+        await dbClient.query('ROLLBACK');
         console.error('Błąd podczas rejestracji:', error);
         res.status(500).json({ message: error.message || 'Błąd serwera podczas rejestracji.' });
     } finally {
-        if(client) client.release();
+        if(dbClient) dbClient.release();
     }
 };
 
@@ -148,6 +149,47 @@ exports.login = async (req, res) => {
     } catch (error) {
         console.error('Błąd podczas logowania:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
+    }
+};
+
+exports.googleLogin = async (req, res) => {
+    const { credential } = req.body;
+    try {
+        const ticket = await client.verifyIdToken({
+            idToken: credential,
+            audience: GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { email, given_name, family_name } = payload;
+
+        let userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        let user = userResult.rows[0];
+
+        if (!user) {
+            console.log(`Użytkownik Google nie istnieje, tworzenie nowego konta dla: ${email}`);
+            const randomPassword = crypto.randomBytes(32).toString('hex');
+            const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+            const newUserQuery = await pool.query(
+                `INSERT INTO users (email, password_hash, user_type, first_name, last_name, is_verified, role)
+                 VALUES ($1, $2, 'organizer', $3, $4, TRUE, 'user') RETURNING *`,
+                [email, hashedPassword, given_name, family_name]
+            );
+            user = newUserQuery.rows[0];
+        }
+
+        if (user.is_blocked) {
+            return res.status(403).json({ message: 'Twoje konto zostało zablokowane.' });
+        }
+
+        const appPayload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
+        const token = jwt.sign(appPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
+        
+        res.json({ token, userId: user.user_id, email: user.email, user_type: user.user_type, company_name: user.company_name, role: user.role, first_name: user.first_name });
+
+    } catch (error) {
+        console.error("Błąd podczas logowania przez Google:", error);
+        res.status(500).json({ message: "Błąd serwera podczas logowania przez Google." });
     }
 };
 

@@ -25,14 +25,29 @@ const { createBrandedEmail } = require('./utils/emailTemplate');
 
 const app = express();
 
+// --- ZMIANA JEST TUTAJ ---
+// Dodajemy nową subdomenę do listy zaufanych źródeł
+const allowedOrigins = [
+  'https://pakowanko-1723651322373.web.app', // Stary adres do testów
+  'https://app.bookthefoodtruck.eu'          // Nowa, oficjalna subdomena aplikacji
+];
+
 const corsOptions = {
-  origin: 'https://pakowanko-1723651322373.web.app',
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
   allowedHeaders: "Content-Type,Authorization",
   optionsSuccessStatus: 200,
   credentials: true
 };
 app.use(cors(corsOptions));
+// --- KONIEC ZMIANY ---
+
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -43,7 +58,7 @@ app.use((req, res, next) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "https://pakowanko-1723651322373.web.app",
+    origin: allowedOrigins, // Używamy tej samej listy dla Socket.IO
     methods: ["GET", "POST"]
   }
 });

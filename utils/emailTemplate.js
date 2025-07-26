@@ -1,7 +1,6 @@
 const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Centralne miejsce do zarządzania adresami URL
 const APP_URL = 'https://app.bookthefoodtruck.eu';
 const LANDING_PAGE_URL = 'https://www.bookthefoodtruck.eu';
 const PARTNER_URL = 'https://www.pakowanko.com';
@@ -117,4 +116,46 @@ async function sendGoogleWelcomeEmail(recipientEmail, firstName) {
     console.log(`Wysłano maila powitalnego (Google) na adres ${recipientEmail}`);
 }
 
-module.exports = { createBrandedEmail, sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail };
+async function sendPackagingReminderEmail(recipientEmail, foodTruckName) {
+    const title = `Przypomnienie: Zamów opakowania dla ${foodTruckName}`;
+    const body = `
+        <p>Zbliża się termin Twojej rezerwacji dla food trucka <strong>${foodTruckName}</strong>.</p>
+        <p><strong>Pamiętaj, że zgodnie z regulaminem, jesteś zobowiązany do zakupu opakowań na to wydarzenie w naszym sklepie: <a href="https://www.pakowanko.com">www.pakowanko.com</a>.</strong></p>
+        <p>Prosimy o złożenie zamówienia z odpowiednim wyprzedzeniem.</p>
+    `;
+    const finalHtml = createBrandedEmail(title, body);
+
+    const msg = {
+        to: recipientEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'Book The Food Truck' },
+        subject: title,
+        html: finalHtml,
+    };
+    await sgMail.send(msg);
+    console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
+}
+
+async function sendCreateProfileReminderEmail(recipientEmail, firstName) {
+    const title = `Nie trać klientów na Book The Food Truck!`;
+    const body = `
+        <p>Cześć ${firstName},</p>
+        <p>Zauważyliśmy, że zarejestrowałeś się na naszej platformie, ale nie utworzyłeś jeszcze profilu swojego food trucka. W międzyczasie, organizatorzy z Twojej okolicy aktywnie poszukują ofert na swoje wydarzenia!</p>
+        <p>Nie pozwól, aby ominęły Cię potencjalne rezerwacje. Uzupełnienie profilu zajmuje tylko kilka minut, a dzięki niemu Twoja oferta stanie się widoczna dla setek organizatorów.</p>
+        <a href="${APP_URL}/create-profile" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+            Uzupełnij profil teraz
+        </a>
+        <p>Pokaż się klientom i zacznij zarabiać z Book The Food Truck!</p>
+    `;
+    const finalHtml = createBrandedEmail(title, body);
+
+    const msg = {
+        to: recipientEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'Book The Food Truck' },
+        subject: title,
+        html: finalHtml,
+    };
+    await sgMail.send(msg);
+    console.log(`Wysłano przypomnienie o utworzeniu profilu do ${recipientEmail}`);
+}
+
+module.exports = { createBrandedEmail, sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail, sendPackagingReminderEmail, sendCreateProfileReminderEmail };

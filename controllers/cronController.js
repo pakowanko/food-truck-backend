@@ -1,9 +1,9 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { sendPackagingReminderEmail } = require('../utils/emailTemplate');
+const { sendPackagingReminderEmail, sendCreateProfileReminderEmail } = require('../utils/emailTemplate');
 
 exports.sendDailyReminders = async (req, res) => {
-    console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień.');
+    console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o opakowaniach.');
     try {
         const result = await pool.query(
             `SELECT u.email AS owner_email, ftp.food_truck_name
@@ -15,19 +15,18 @@ exports.sendDailyReminders = async (req, res) => {
         );
 
         if (result.rows.length === 0) {
-            console.log('[Cron] Nie znaleziono rezerwacji do przypomnienia na dziś.');
-            return res.status(200).send('Brak rezerwacji do przypomnienia.');
+            console.log('[Cron] Nie znaleziono rezerwacji do przypomnienia o opakowaniach na dziś.');
+            return res.status(200).send('Brak rezerwacji do przypomnienia o opakowaniach.');
         }
 
         for (const booking of result.rows) {
             await sendPackagingReminderEmail(booking.owner_email, booking.food_truck_name);
         }
 
-        console.log(`[Cron] Wysłano pomyślnie ${result.rows.length} przypomnień.`);
-        res.status(200).send(`Wysłano pomyślnie ${result.rows.length} przypomnień.`);
+        res.status(200).send(`Wysłano pomyślnie ${result.rows.length} przypomnień o opakowaniach.`);
 
     } catch (error) {
-        console.error('[Cron] Błąd podczas wysyłania przypomnień:', error);
+        console.error('[Cron] Błąd podczas wysyłania przypomnień o opakowaniach:', error);
         res.status(500).send('Błąd serwera podczas zadania cron.');
     }
 };
@@ -83,6 +82,36 @@ exports.generateDailyInvoices = async (req, res) => {
         res.status(200).send(`Wygenerowano ${result.rows.length} faktur.`);
     } catch (error) {
         console.error('[Cron] Błąd podczas generowania faktur:', error);
+        res.status(500).send('Błąd serwera podczas zadania cron.');
+    }
+};
+
+exports.sendProfileCreationReminders = async (req, res) => {
+    console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o utworzeniu profilu.');
+    try {
+        const result = await pool.query(`
+            SELECT u.user_id, u.email, u.first_name
+            FROM users u
+            LEFT JOIN food_truck_profiles p ON u.user_id = p.owner_id
+            WHERE u.user_type = 'food_truck_owner' AND u.is_verified = TRUE
+            GROUP BY u.user_id
+            HAVING COUNT(p.profile_id) = 0
+        `);
+
+        if (result.rows.length === 0) {
+            console.log('[Cron] Nie znaleziono właścicieli bez profili do przypomnienia.');
+            return res.status(200).send('Brak użytkowników do przypomnienia.');
+        }
+
+        for (const user of result.rows) {
+            await sendCreateProfileReminderEmail(user.email, user.first_name);
+        }
+
+        console.log(`[Cron] Wysłano pomyślnie ${result.rows.length} przypomnień o utworzeniu profilu.`);
+        res.status(200).send(`Wysłano pomyślnie ${result.rows.length} przypomnień.`);
+
+    } catch (error) {
+        console.error('[Cron] Błąd podczas wysyłania przypomnień o profilu:', error);
         res.status(500).send('Błąd serwera podczas zadania cron.');
     }
 };

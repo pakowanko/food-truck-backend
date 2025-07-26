@@ -17,4 +17,8 @@ router.get('/bookings', isAdmin, adminController.getAllBookings);
 router.put('/bookings/:requestId/packaging-status', isAdmin, adminController.updatePackagingStatus);
 router.put('/bookings/:requestId/commission-status', isAdmin, adminController.updateCommissionStatus);
 
+// --- NOWE ŚCIEŻKI ---
+router.get('/conversations', isAdmin, adminController.getAllConversations);
+router.get('/conversations/:conversationId/messages', isAdmin, adminController.getConversationMessages);
+
 module.exports = router;

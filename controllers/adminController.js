@@ -166,3 +166,41 @@ exports.updateCommissionStatus = async (req, res) => {
         res.status(500).json({ message: "Błąd serwera." });
     }
 };
+
+exports.getAllConversations = async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT 
+                c.conversation_id, 
+                c.title,
+                u1.email as participant1_email,
+                u2.email as participant2_email
+             FROM conversations c
+             JOIN users u1 ON c.participant_ids[1] = u1.user_id
+             JOIN users u2 ON c.participant_ids[2] = u2.user_id
+             ORDER BY c.created_at DESC`
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error("Błąd pobierania rozmów (admin):", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+exports.getConversationMessages = async (req, res) => {
+    const { conversationId } = req.params;
+    try {
+        const messagesResult = await pool.query(
+            `SELECT m.*, u.email as sender_email 
+             FROM messages m
+             JOIN users u ON m.sender_id = u.user_id
+             WHERE m.conversation_id = $1 
+             ORDER BY m.created_at ASC`, 
+            [conversationId]
+        );
+        res.status(200).json(messagesResult.rows);
+    } catch (error) { 
+        console.error("Błąd pobierania wiadomości (admin):", error); 
+        res.status(500).json({ message: "Błąd serwera." }); 
+    }
+};

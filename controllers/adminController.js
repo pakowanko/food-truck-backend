@@ -250,3 +250,126 @@ exports.deleteProfile = async (req, res) => {
         client.release();
     }
 };
+// Ta funkcja zastępuje poprzednią wersję handleStripeWebhook
+exports.handleStripeWebhook = async (req, res) => {
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!endpointSecret) {
+        console.log('BŁĄD: Brak klucza STRIPE_WEBHOOK_SECRET w zmiennych środowiskowych.');
+        return res.status(400).send('Webhook secret not configured.');
+    }
+
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } catch (err) {
+        console.log(`❌ Błąd weryfikacji webhooka Stripe: ${err.message}`);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log(`✅ Otrzymano zdarzenie Stripe: ${event.type}`);
+    
+    // Obsługa zdarzenia opłaconej faktury
+    if (event.type === 'invoice.paid') {
+        const invoice = event.data.object;
+        console.log(`Faktura ${invoice.id} została opłacona.`);
+
+        // --- POCZĄTEK NOWEJ LOGIKI ---
+
+        // Pobierz pierwszą pozycję z faktury, aby znaleźć ID rezerwacji w opisie
+        const lineItem = invoice.lines.data[0];
+        
+        if (lineItem && lineItem.description) {
+            // Wyciągnij numer ID z opisu "Prowizja za rezerwację #123"
+            const match = lineItem.description.match(/#(\d+)/);
+            
+            if (match && match[1]) {
+                const requestId = parseInt(match[1], 10);
+                console.log(`Znaleziono ID rezerwacji: ${requestId}. Aktualizowanie bazy danych...`);
+                
+                try {
+                    // Zaktualizuj flagę commission_paid w tabeli booking_requests
+                    const result = await pool.query(
+                        'UPDATE booking_requests SET commission_paid = TRUE WHERE request_id = $1',
+                        [requestId]
+                    );
+                    
+                    if (result.rowCount > 0) {
+                        console.log(`✅ Pomyślnie zaktualizowano status prowizji dla rezerwacji #${requestId}.`);
+                    } else {
+                        console.log(`⚠️ Nie znaleziono rezerwacji o ID #${requestId} do aktualizacji.`);
+                    }
+
+                } catch (dbError) {
+                    console.error(`❌ Błąd podczas aktualizacji bazy danych dla rezerwacji #${requestId}:`, dbError);
+                }
+            } else {
+                 console.error(`⚠️ Nie można było wyodrębnić ID rezerwacji z opisu faktury: "${lineItem.description}"`);
+            }
+        } else {
+            console.error('⚠️ Faktura nie zawiera pozycji z opisem. Nie można zaktualizować statusu prowizji.');
+        }
+        // --- KONIEC NOWEJ LOGIKI ---
+    }
+
+    // Możesz tu dodać obsługę innych eventów, np. 'invoice.payment_failed'
+
+    // Zwróć odpowiedź 200, aby potwierdzić otrzymanie zdarzenia
+    res.json({ received: true });
+};
+
+// Tę funkcję dodaj na końcu pliku adminController.js
+exports.syncAllUsersWithStripe = async (req, res) => {
+    console.log('[SYNC] Rozpoczynam jednorazową synchronizację użytkowników ze Stripe...');
+    
+    try {
+        // 1. Pobierz wszystkich właścicieli food trucków, którzy mają Stripe ID
+        const { rows: users } = await pool.query(
+            `SELECT user_id, email, company_name, nip, phone_number, street_address, postal_code, city, country_code, stripe_customer_id 
+             FROM users 
+             WHERE user_type = 'food_truck_owner' AND stripe_customer_id IS NOT NULL`
+        );
+
+        if (users.length === 0) {
+            console.log('[SYNC] Nie znaleziono użytkowników do synchronizacji.');
+            return res.status(200).send('Brak użytkowników do synchronizacji.');
+        }
+
+        console.log(`[SYNC] Znaleziono ${users.length} użytkowników do przetworzenia.`);
+        let successCount = 0;
+        let errorCount = 0;
+
+        // 2. Przejdź pętlą przez każdego użytkownika
+        for (const user of users) {
+            try {
+                // 3. Zaktualizuj dane w Stripe
+                await stripe.customers.update(user.stripe_customer_id, {
+                    name: user.company_name,
+                    email: user.email,
+                    phone: user.phone_number,
+                    address: {
+                        line1: user.street_address,
+                        postal_code: user.postal_code,
+                        city: user.city,
+                        country: user.country_code || 'PL',
+                    },
+                    tax_id_data: user.nip ? [{ type: 'eu_vat', value: user.nip }] : [],
+                });
+                console.log(`[SYNC] ✅ Pomyślnie zsynchronizowano: ${user.email}`);
+                successCount++;
+            } catch (stripeError) {
+                console.error(`[SYNC] ❌ Błąd dla użytkownika ${user.email} (Stripe ID: ${user.stripe_customer_id}):`, stripeError.message);
+                errorCount++;
+            }
+        }
+        
+        const summary = `Synchronizacja zakończona. Sukces: ${successCount}, Błędy: ${errorCount}.`;
+        console.log(`[SYNC] ${summary}`);
+        res.status(200).send(summary);
+
+    } catch (error) {
+        console.error('[SYNC] Krytyczny błąd podczas synchronizacji:', error);
+        res.status(500).send('Wystąpił krytyczny błąd serwera.');
+    }
+};

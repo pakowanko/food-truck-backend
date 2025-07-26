@@ -21,4 +21,8 @@ router.put('/bookings/:requestId/commission-status', isAdmin, adminController.up
 router.get('/conversations', isAdmin, adminController.getAllConversations);
 router.get('/conversations/:conversationId/messages', isAdmin, adminController.getConversationMessages);
 
+// --- NOWE ŚCIEŻKI ---
+router.get('/users/:userId/profiles', isAdmin, adminController.getUserProfiles);
+router.delete('/profiles/:profileId', isAdmin, adminController.deleteProfile);
+
 module.exports = router;

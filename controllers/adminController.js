@@ -22,7 +22,16 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
     try {
-        const result = await pool.query('SELECT user_id, email, user_type, first_name, last_name, company_name, nip, street_address, postal_code, city, is_blocked, role FROM users ORDER BY user_id ASC');
+        const result = await pool.query(`
+            SELECT 
+                u.user_id, u.email, u.user_type, u.first_name, u.last_name, 
+                u.company_name, u.nip, u.street_address, u.postal_code, u.city, 
+                u.is_blocked, u.role, COUNT(p.profile_id) as profile_count
+            FROM users u
+            LEFT JOIN food_truck_profiles p ON u.user_id = p.owner_id
+            GROUP BY u.user_id
+            ORDER BY u.user_id ASC
+        `);
         res.json(result.rows);
     } catch (error) {
         console.error("Błąd pobierania użytkowników (admin):", error);
@@ -202,5 +211,42 @@ exports.getConversationMessages = async (req, res) => {
     } catch (error) { 
         console.error("Błąd pobierania wiadomości (admin):", error); 
         res.status(500).json({ message: "Błąd serwera." }); 
+    }
+};
+
+exports.getUserProfiles = async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const result = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1 ORDER BY food_truck_name', [userId]);
+        res.json(result.rows);
+    } catch (error) {
+        console.error("Błąd pobierania profili użytkownika (admin):", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+exports.deleteProfile = async (req, res) => {
+    const { profileId } = req.params;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        await client.query('DELETE FROM reviews WHERE profile_id = $1', [profileId]);
+        await client.query('DELETE FROM booking_requests WHERE profile_id = $1', [profileId]);
+        
+        const deleteResult = await client.query('DELETE FROM food_truck_profiles WHERE profile_id = $1', [profileId]);
+
+        if (deleteResult.rowCount === 0) {
+            throw new Error('Nie znaleziono profilu do usunięcia.');
+        }
+
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Profil został pomyślnie usunięty.' });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Błąd podczas usuwania profilu (admin):", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    } finally {
+        client.release();
     }
 };

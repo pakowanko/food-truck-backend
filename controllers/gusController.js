@@ -1,22 +1,21 @@
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
 
-// Adres URL do API GUS jest poprawny
 const GUS_API_URL = 'https://wyszukiwarkaregon.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc';
 
-// --- POCZĄTEK ZMIAN ---
-// Zaktualizowane, poprawne adresy akcji (SOAP Actions) dla API w wersji BIR1.1
 const GUS_API_LOGIN_ACTION = 'http://CIS.BIR.PUBL.2014.07/IUslugaBIRzewnPubl/Zaloguj';
 const GUS_API_SEARCH_ACTION = 'http://CIS.BIR.PUBL.2014.07/IUslugaBIRzewnPubl/DaneSzukajPodmioty';
 const GUS_API_LOGOUT_ACTION = 'http://CIS.BIR.PUBL.2014.07/IUslugaBIRzewnPubl/Wyloguj';
-// --- KONIEC ZMIAN ---
+
+// --- ZMIANA (1/4): Zmiana przestrzeni nazw na zgodną z SOAP 1.1 ---
+const SOAP_ENVELOPE_NS = 'http://schemas.xmlsoap.org/soap/envelope/';
 
 async function getGusSession(apiKey) {
     if (!apiKey) {
         throw new Error('Brak klucza API do GUS (GUS_API_KEY).');
     }
 
-    const loginXml = `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:ns="http://CIS.BIR.PUBL.2014.07">
+    const loginXml = `<soap:Envelope xmlns:soap="${SOAP_ENVELOPE_NS}" xmlns:ns="http://CIS.BIR.PUBL.2014.07">
                         <soap:Header xmlns:wsa="http://www.w3.org/2005/08/addressing">
                             <wsa:To>${GUS_API_URL}</wsa:To>
                             <wsa:Action>${GUS_API_LOGIN_ACTION}</wsa:Action>
@@ -28,8 +27,9 @@ async function getGusSession(apiKey) {
                         </soap:Body>
                     </soap:Envelope>`;
 
+    // --- ZMIANA (2/4): Zmiana Content-Type na zgodny z SOAP 1.1 ---
     const response = await axios.post(GUS_API_URL, loginXml, {
-        headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' }
+        headers: { 'Content-Type': 'text/xml; charset=utf-8' }
     });
 
     const parsedResponse = await parseStringPromise(response.data);
@@ -38,7 +38,7 @@ async function getGusSession(apiKey) {
 }
 
 async function logoutGusSession(sid) {
-     const logoutXml = `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:ns="http://CIS.BIR.PUBL.2014.07">
+     const logoutXml = `<soap:Envelope xmlns:soap="${SOAP_ENVELOPE_NS}" xmlns:ns="http://CIS.BIR.PUBL.2014.07">
                           <soap:Header xmlns:wsa="http://www.w3.org/2005/08/addressing">
                             <wsa:To>${GUS_API_URL}</wsa:To>
                             <wsa:Action>${GUS_API_LOGOUT_ACTION}</wsa:Action>
@@ -49,7 +49,7 @@ async function logoutGusSession(sid) {
                             </ns:Wyloguj>
                           </soap:Body>
                         </soap:Envelope>`;
-    await axios.post(GUS_API_URL, logoutXml, { headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'sid': sid } });
+    await axios.post(GUS_API_URL, logoutXml, { headers: { 'Content-Type': 'text/xml; charset=utf-8', 'sid': sid } });
 }
 
 
@@ -66,7 +66,7 @@ exports.getCompanyDataByNip = async (req, res) => {
             return res.status(500).json({ message: 'Nie udało się uzyskać sesji z GUS.' });
         }
 
-        const searchXml = `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:ns="http://CIS.BIR.PUBL.2014.07" xmlns:dat="http://CIS.BIR.PUBL.2014.07.DataContract">
+        const searchXml = `<soap:Envelope xmlns:soap="${SOAP_ENVELOPE_NS}" xmlns:ns="http://CIS.BIR.PUBL.2014.07" xmlns:dat="http://CIS.BIR.PUBL.2014.07.DataContract">
                             <soap:Header xmlns:wsa="http://www.w3.org/2005/08/addressing">
                                 <wsa:To>${GUS_API_URL}</wsa:To>
                                 <wsa:Action>${GUS_API_SEARCH_ACTION}</wsa:Action>
@@ -80,12 +80,14 @@ exports.getCompanyDataByNip = async (req, res) => {
                             </soap:Body>
                         </soap:Envelope>`;
 
+        // --- ZMIANA (3/4): Zmiana Content-Type na zgodny z SOAP 1.1 ---
         const searchResponse = await axios.post(GUS_API_URL, searchXml, {
-            headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'sid': sid }
+            headers: { 'Content-Type': 'text/xml; charset=utf-8', 'sid': sid }
         });
         
+        // --- ZMIANA (4/4): Dostosowanie parsowania odpowiedzi do struktury SOAP 1.1 ---
         const parsedSearch = await parseStringPromise(searchResponse.data);
-        const searchResultXml = parsedSearch['s:Envelope']['s:Body'][0].DaneSzukajPodmiotyResponse[0].DaneSzukajPodmiotyResult[0];
+        const searchResultXml = parsedSearch['soap:Envelope']['soap:Body'][0].DaneSzukajPodmiotyResponse[0].DaneSzukajPodmiotyResult[0];
         
         if (!searchResultXml || searchResultXml.trim() === '') {
             return res.status(404).json({ message: 'Nie znaleziono firmy o podanym numerze NIP.' });
@@ -95,7 +97,6 @@ exports.getCompanyDataByNip = async (req, res) => {
         
         const data = companyData.root.dane;
         
-        // Łączenie ulicy i numeru, z uwzględnieniem, że numer lokalu może istnieć lub nie
         const street = data.Ulica ? `${data.Ulica} ${data.NrNieruchomosci}${data.NrLokalu ? `/${data.NrLokalu}` : ''}`.trim() : (data.AdresPoczty || '');
 
         const formattedData = {
@@ -111,7 +112,6 @@ exports.getCompanyDataByNip = async (req, res) => {
         console.error("Błąd podczas komunikacji z API GUS:", error.response ? error.response.data : error.message);
         res.status(500).json({ message: "Błąd serwera podczas pobierania danych z GUS." });
     } finally {
-        // Zgodnie z dobrymi praktykami, zawsze wylogowujemy sesję
         if (sid) {
             await logoutGusSession(sid);
             console.log('[GUS Controller] Sesja wylogowana.');

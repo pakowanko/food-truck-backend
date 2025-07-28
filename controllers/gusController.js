@@ -7,6 +7,7 @@ const GUS_API_LOGIN_ACTION = 'http://CIS.BIR.PUBL.2014.07.IUslugaBIRzewnPubl/Zal
 const GUS_API_SEARCH_ACTION = 'http://CIS.BIR.PUBL.2014.07.IUslugaBIRzewnPubl/DaneSzukajPodmioty';
 
 // Funkcja do logowania i pobierania ID sesji
+
 async function getGusSessionId() {
     const apiKey = process.env.GUS_API_KEY;
     if (!apiKey) {
@@ -16,17 +17,47 @@ async function getGusSessionId() {
 
     const loginXml = `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:ns="http://CIS.BIR.PUBL.2014.07"><soap:Header xmlns:wsa="http://www.w3.org/2005/08/addressing"><wsa:To>${GUS_API_URL}</wsa:To><wsa:Action>${GUS_API_LOGIN_ACTION}</wsa:Action></soap:Header><soap:Body><ns:Zaloguj><ns:pKluczUzytkownika>${apiKey}</ns:pKluczUzytkownika></ns:Zaloguj></soap:Body></soap:Envelope>`;
     
-    console.log("--- WYSYŁANIE XML LOGOWANIA DO GUS ---");
-    // Usunięto logowanie XML, aby nie pokazywać klucza API w logach produkcyjnych
+    // NOWY LOG: Informacja o rozpoczynającej się próbie połączenia
+    console.log(`[GUS Login] Próba wysłania żądania logowania do ${GUS_API_URL}...`);
 
-    const response = await axios.post(GUS_API_URL, loginXml, {
-        headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' }
-    });
+    try {
+        const response = await axios.post(GUS_API_URL, loginXml, {
+            headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' },
+            // Ustawiamy timeout na 15 sekund, aby aplikacja nie wisiała w nieskończoność
+            timeout: 15000 
+        });
 
-    const parsedResponse = await parseStringPromise(response.data);
-    const sid = parsedResponse['s:Envelope']['s:Body'][0].ZalogujResponse[0].ZalogujResult[0];
-    console.log("--- OTRZYMANO ID SESJI Z GUS ---"); // Nie logujemy samego sid
-    return sid;
+        const parsedResponse = await parseStringPromise(response.data);
+        const sid = parsedResponse['s:Envelope']['s:Body'][0].ZalogujResponse[0].ZalogujResult[0];
+        
+        console.log("--- OTRZYMANO ID SESJI Z GUS ---"); // Ten log oznacza sukces
+        return sid;
+
+    } catch (error) {
+        // ROZBUDOWANY BLOK CATCH: Szczegółowa analiza błędu
+        console.error("--- WYSTĄPIŁ KRYTYCZNY BŁĄD PODCZAS LOGOWANIA DO GUS ---");
+
+        if (error.response) {
+            // Serwer GUS odpowiedział, ale ze statusem błędu (np. 4xx, 5xx)
+            console.error(`[GUS Login Error] Serwer GUS odpowiedział błędem.`);
+            console.error(`Status: ${error.response.status}`);
+            console.error(`Headers: ${JSON.stringify(error.response.headers)}`);
+            console.error(`Data: ${error.response.data}`);
+        } else if (error.request) {
+            // Zapytanie zostało wysłane, ale nie otrzymano żadnej odpowiedzi
+            // TO JEST NAJBARDZIEJ PRAWDOPODOBNY SCENARIUSZ W TWOIM PRZYPADKU
+            console.error('[GUS Login Error] Zapytanie zostało wysłane, ale nie otrzymano odpowiedzi. To wskazuje na problem sieciowy (firewall, brak połączenia) lub timeout.');
+            console.error(`Kod błędu (jeśli dostępny): ${error.code}`);
+        } else {
+            // Inny błąd, np. problem z konfiguracją samego zapytania axios
+            console.error('[GUS Login Error] Wystąpił błąd podczas przygotowywania zapytania.');
+            console.error(`Message: ${error.message}`);
+        }
+        console.error("---------------------------------------------------------");
+        
+        // Rzuć błąd dalej, aby główny kontroler mógł go obsłużyć i wysłać odpowiedź 500 do klienta
+        throw new Error('Nie udało się połączyć z serwerem GUS w celu logowania.');
+    }
 }
 
 // Główny eksportowany kontroler

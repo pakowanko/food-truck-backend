@@ -2,15 +2,11 @@ const express = require('express');
 const router = express.Router();
 const cronController = require('../controllers/cronController');
 
-const isCronRequest = (req, res, next) => {
-    if (req.get('X-Appengine-Cron') === 'true' || process.env.NODE_ENV !== 'production') {
-        return next();
-    }
-    return res.status(403).send('Brak uprawnień.');
-};
+// Usunęliśmy funkcję isCronRequest.
+// Uwierzytelnianie będzie teraz obsługiwane automatycznie przez Cloud Run i token OIDC.
 
-router.post('/send-reminders', isCronRequest, cronController.sendDailyReminders);
-router.post('/generate-invoices', isCronRequest, cronController.generateDailyInvoices);
-router.post('/send-profile-reminders', isCronRequest, cronController.sendProfileCreationReminders);
+router.post('/send-reminders', cronController.sendDailyReminders);
+router.post('/generate-invoices', cronController.generateDailyInvoices);
+router.post('/send-profile-reminders', cronController.sendProfileCreationReminders);
 
 module.exports = router;

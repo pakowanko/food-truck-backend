@@ -1,18 +1,23 @@
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
 
+// Adresy URL i akcje dla API GUS
 const GUS_API_URL = 'https://wyszukiwarkaregon.stat.gov.pl/wsBIR/UslugaBIRzewnPubl.svc';
 const GUS_API_LOGIN_ACTION = 'http://CIS.BIR.PUBL.2014.07.IUslugaBIRzewnPubl/Zaloguj';
 const GUS_API_SEARCH_ACTION = 'http://CIS.BIR.PUBL.2014.07.IUslugaBIRzewnPubl/DaneSzukajPodmioty';
 
+// Funkcja do logowania i pobierania ID sesji
 async function getGusSessionId() {
     const apiKey = process.env.GUS_API_KEY;
-    if (!apiKey) throw new Error('Brak klucza API do GUS (GUS_API_KEY).');
+    if (!apiKey) {
+        console.error('Brak klucza API do GUS (GUS_API_KEY) w zmiennych środowiskowych.');
+        throw new Error('Brak klucza API do GUS (GUS_API_KEY).');
+    }
 
     const loginXml = `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:ns="http://CIS.BIR.PUBL.2014.07"><soap:Header xmlns:wsa="http://www.w3.org/2005/08/addressing"><wsa:To>${GUS_API_URL}</wsa:To><wsa:Action>${GUS_API_LOGIN_ACTION}</wsa:Action></soap:Header><soap:Body><ns:Zaloguj><ns:pKluczUzytkownika>${apiKey}</ns:pKluczUzytkownika></ns:Zaloguj></soap:Body></soap:Envelope>`;
     
     console.log("--- WYSYŁANIE XML LOGOWANIA DO GUS ---");
-    console.log(loginXml);
+    // Usunięto logowanie XML, aby nie pokazywać klucza API w logach produkcyjnych
 
     const response = await axios.post(GUS_API_URL, loginXml, {
         headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' }
@@ -20,10 +25,11 @@ async function getGusSessionId() {
 
     const parsedResponse = await parseStringPromise(response.data);
     const sid = parsedResponse['s:Envelope']['s:Body'][0].ZalogujResponse[0].ZalogujResult[0];
-    console.log("--- OTRZYMANO ID SESJI Z GUS ---", sid);
+    console.log("--- OTRZYMANO ID SESJI Z GUS ---"); // Nie logujemy samego sid
     return sid;
 }
 
+// Główny eksportowany kontroler
 exports.getCompanyDataByNip = async (req, res) => {
     const { nip } = req.params;
     console.log(`[GUS Controller] Otrzymano zapytanie o dane dla NIP: ${nip}`);
@@ -34,29 +40,48 @@ exports.getCompanyDataByNip = async (req, res) => {
             return res.status(500).json({ message: 'Nie udało się uzyskać sesji z GUS.' });
         }
 
+        // --- TUTAJ JEST POPRAWKA ---
+        // Zwróć uwagę na <ns:pParametryWyszukiwania> - ma teraz poprawny prefix.
         const searchXml = `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:ns="http://CIS.BIR.PUBL.2014.07" xmlns:dat="http://CIS.BIR.PUBL.2014.07.DataContract"><soap:Header xmlns:wsa="http://www.w3.org/2005/08/addressing"><wsa:To>${GUS_API_URL}</wsa:To><wsa:Action>${GUS_API_SEARCH_ACTION}</wsa:Action></soap:Header><soap:Body><ns:DaneSzukajPodmioty><ns:pParametryWyszukiwania><dat:Nip>${nip}</dat:Nip></ns:pParametryWyszukiwania></ns:DaneSzukajPodmioty></soap:Body></soap:Envelope>`;
 
         console.log("--- WYSYŁANIE XML WYSZUKIWANIA DO GUS ---");
-        console.log(searchXml);
+        // console.log(searchXml); // Można odkomentować do debugowania
 
         const searchResponse = await axios.post(GUS_API_URL, searchXml, {
-            headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'sid': sid }
+            headers: { 
+                'Content-Type': 'application/soap+xml; charset=utf-8', 
+                'sid': sid 
+            }
         });
         
         const parsedSearch = await parseStringPromise(searchResponse.data);
+        // Sprawdzanie, czy odpowiedź nie jest błędem SOAP
+        if (parsedSearch['s:Envelope']['s:Body'][0]['s:Fault']) {
+            const fault = parsedSearch['s:Envelope']['s:Body'][0]['s:Fault'][0];
+            const reason = fault['s:Reason'][0]['s:Text'][0]['_'];
+            console.error('Błąd SOAP z GUS:', reason);
+            return res.status(500).json({ message: `Błąd z API GUS: ${reason}` });
+        }
+        
         const searchResultXml = parsedSearch['s:Envelope']['s:Body'][0].DaneSzukajPodmiotyResponse[0].DaneSzukajPodmiotyResult[0];
         
         if (!searchResultXml || searchResultXml.trim() === '') {
             return res.status(404).json({ message: 'Nie znaleziono firmy o podanym numerze NIP.' });
         }
-
-        const companyData = await parseStringPromise(searchResultXml, { explicitArray: false, ignoreAttrs: true });
+        
+        // Parsowanie XML z danymi firmy
+        const companyData = await parseStringPromise(searchResultXml, { explicitArray: false, ignoreAttrs: true, tagNameProcessors: [(name) => name.replace('fiz_', '')] });
         const data = companyData.root.dane;
-        const street = data.Ulica ? `${data.Ulica} ${data.NrNieruchomosci}` : data.AdresPoczty;
+
+        if (!data.Nazwa) {
+            return res.status(404).json({ message: 'Nie znaleziono firmy o podanym numerze NIP w zwróconych danych.' });
+        }
+        
+        const street = data.Ulica ? `${data.Ulica} ${data.NrNieruchomosci}` : (data.AdresPoczty || '');
 
         const formattedData = {
             company_name: data.Nazwa,
-            street_address: street,
+            street_address: street.trim(),
             postal_code: data.KodPocztowy,
             city: data.Miejscowosc
         };

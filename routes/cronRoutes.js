@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const cronController = require('../controllers/cronController');
-const authMiddleware = require('../middleware/authMiddleware'); // Dodany import
-const isAdmin = require('../middleware/isAdmin'); // Dodany import
 
-// Usunęliśmy funkcję isCronRequest.
-// Uwierzytelnianie będzie teraz obsługiwane automatycznie przez Cloud Run i token OIDC.
+// Używamy Twojego istniejącego pliku do uwierzytelniania
+const authenticateToken = require('../middleware/authenticateToken'); 
+// Importujemy nasz nowy plik sprawdzający, czy użytkownik jest adminem
+const isAdmin = require('../middleware/isAdmin'); 
 
 // Trasy dla Cloud Scheduler (zabezpieczone tokenem OIDC w Google Cloud)
 router.post('/send-reminders', cronController.sendDailyReminders);
@@ -14,11 +14,11 @@ router.post('/send-profile-reminders', cronController.sendProfileCreationReminde
 
 // --- NOWA TRASA DLA ADMINISTRATORA ---
 // Ta trasa jest chroniona podwójnie:
-// 1. authMiddleware - sprawdza, czy użytkownik jest zalogowany (ważny token JWT)
+// 1. authenticateToken - sprawdza, czy użytkownik jest zalogowany (Twój istniejący middleware)
 // 2. isAdmin - sprawdza, czy zalogowany użytkownik ma rolę 'admin'
 router.post(
     '/publish-all-existing', 
-    authMiddleware, 
+    authenticateToken, 
     isAdmin, 
     cronController.publishAllExistingProfiles
 );

@@ -1,6 +1,7 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { sendPackagingReminderEmail, sendCreateProfileReminderEmail } = require('../utils/emailTemplate');
+const { publishPhotoToFacebook } = require('../utils/facebookPublisher'); // <-- DODANY IMPORT
 
 exports.sendDailyReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o opakowaniach.');
@@ -113,5 +114,52 @@ exports.sendProfileCreationReminders = async (req, res) => {
     } catch (error) {
         console.error('[Cron] Błąd podczas wysyłania przypomnień o profilu:', error);
         res.status(500).send('Błąd serwera podczas zadania cron.');
+    }
+};
+
+
+// --- NOWA FUNKCJA DO PUBLIKACJI ISTNIEJĄCYCH PROFILI ---
+exports.publishAllExistingProfiles = async (req, res) => {
+    console.log('[Admin] Uruchomiono zadanie publikacji wszystkich istniejących profili na Facebooku.');
+    
+    try {
+        const profilesResult = await pool.query('SELECT * FROM food_truck_profiles');
+        const profiles = profilesResult.rows;
+
+        if (profiles.length === 0) {
+            console.log('[Admin] Nie znaleziono żadnych profili do opublikowania.');
+            return res.status(200).send('Brak profili do opublikowania.');
+        }
+
+        console.log(`[Admin] Znaleziono ${profiles.length} profili. Rozpoczynanie publikacji...`);
+
+        let successCount = 0;
+        let failureCount = 0;
+
+        for (const profile of profiles) {
+            try {
+                const profileUrl = `https://app.bookthefoodtruck.eu/profil/${profile.profile_id}`;
+                const message = `👋 Przedstawiamy kolejny świetny food truck na naszej platformie: ${profile.food_truck_name}!\n\nSprawdźcie jego profil i zarezerwujcie na swoją imprezę 👉 ${profileUrl}\n\n🚚 #foodtruck #jedzenie #impreza #bookthefoodtruck`;
+                const photoUrl = profile.profile_image_url;
+
+                await publishPhotoToFacebook(message, photoUrl);
+                successCount++;
+                
+                // Dodajemy 5-sekundowe opóźnienie, aby nie zalać API Facebooka
+                await new Promise(resolve => setTimeout(resolve, 5000)); 
+
+            } catch (postError) {
+                console.error(`[Admin] Nie udało się opublikować profilu ${profile.food_truck_name} (ID: ${profile.profile_id}). Błąd:`, postError.message);
+                failureCount++;
+            }
+        }
+
+        const summary = `Zakończono zadanie. Opublikowano pomyślnie: ${successCount}. Błędy: ${failureCount}.`;
+        console.log(`[Admin] ${summary}`);
+        res.status(200).send(summary);
+
+    } catch (error) {
+        console.error('[Admin] Krytyczny błąd podczas zadania publikacji:', error);
+        res.status(500).send('Błąd serwera podczas zadania publikacji.');
     }
 };

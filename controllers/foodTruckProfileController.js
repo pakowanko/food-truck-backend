@@ -1,6 +1,8 @@
 const pool = require('../db');
 const axios = require('axios');
 const { Storage } = require('@google-cloud/storage');
+// Importujemy nową, wyspecjalizowaną funkcję do publikacji zdjęć
+const { publishPhotoToFacebook } = require('../utils/facebookPublisher'); 
 
 const storage = new Storage();
 const bucketName = process.env.GCS_BUCKET_NAME;
@@ -63,7 +65,32 @@ exports.createProfile = async (req, res) => {
             `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, gallery_photo_urls, profile_image_url, offer, long_term_rental_available) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
             [ownerId, food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm]
         );
-        res.status(201).json(newProfile.rows[0]);
+
+        const newProfileData = newProfile.rows[0];
+
+        // --- ZAKTUALIZOWANY KOD DO PUBLIKACJI ---
+        if (newProfileData) {
+            try {
+                const profileUrl = `https://app.bookthefoodtruck.eu/profil/${newProfileData.profile_id}`;
+                // Tworzymy treść posta, teraz z linkiem w środku
+                const message = `👋 Mamy nowość na pokładzie! Do naszej platformy dołączył ${newProfileData.food_truck_name}!\n\nSprawdźcie jego profil i zarezerwujcie na swoją imprezę 👉 ${profileUrl}\n\n🚚 #foodtruck #nowość #bookthefoodtruck #gastronomia`;
+                
+                // Pobieramy URL do zdjęcia profilowego
+                const photoUrl = newProfileData.profile_image_url;
+
+                // Wywołujemy nową funkcję do publikacji zdjęcia
+                publishPhotoToFacebook(message, photoUrl).catch(err => {
+                    console.error('Publikacja zdjęcia na Facebooku w tle nie powiodła się:', err.message);
+                });
+
+            } catch (publishError) {
+                console.error('Nie udało się zainicjować publikacji posta powitalnego:', publishError.message);
+            }
+        }
+        // --- KONIEC ZAKTUALIZOWANEGO KODU ---
+
+        res.status(201).json(newProfileData);
+
     } catch (error) {
         console.error('Błąd dodawania profilu food trucka:', error);
         res.status(500).json({ message: 'Błąd serwera lub nieprawidłowa lokalizacja.' });

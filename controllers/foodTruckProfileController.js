@@ -1,8 +1,12 @@
 const pool = require('../db');
 const axios = require('axios');
 const { Storage } = require('@google-cloud/storage');
-// Importujemy nową, wyspecjalizowaną funkcję do publikacji zdjęć
-const { publishPhotoToFacebook } = require('../utils/facebookPublisher'); 
+// Importujemy klienta Pub/Sub
+const { PubSub } = require('@google-cloud/pubsub');
+
+// Inicjalizujemy Pub/Sub
+const pubSubClient = new PubSub();
+const topicName = 'reels-generation-topic'; // Nazwa naszej kolejki zleceń
 
 const storage = new Storage();
 const bucketName = process.env.GCS_BUCKET_NAME;
@@ -68,23 +72,15 @@ exports.createProfile = async (req, res) => {
 
         const newProfileData = newProfile.rows[0];
 
-        // --- ZAKTUALIZOWANY KOD DO PUBLIKACJI ---
-        if (newProfileData) {
+        // --- ZAKTUALIZOWANY KOD ---
+        // Zamiast publikować, wysyłamy zlecenie do naszego "studia filmowego"
+        if (newProfileData && newProfileData.gallery_photo_urls && newProfileData.gallery_photo_urls.length > 0) {
+            const dataBuffer = Buffer.from(JSON.stringify(newProfileData));
             try {
-                const profileUrl = `https://app.bookthefoodtruck.eu/profil/${newProfileData.profile_id}`;
-                // Tworzymy treść posta, teraz z linkiem w środku
-                const message = `👋 Mamy nowość na pokładzie! Do naszej platformy dołączył ${newProfileData.food_truck_name}!\n\nSprawdźcie jego profil i zarezerwujcie na swoją imprezę 👉 ${profileUrl}\n\n🚚 #foodtruck #nowość #bookthefoodtruck #gastronomia`;
-                
-                // Pobieramy URL do zdjęcia profilowego
-                const photoUrl = newProfileData.profile_image_url;
-
-                // Wywołujemy nową funkcję do publikacji zdjęcia
-                publishPhotoToFacebook(message, photoUrl).catch(err => {
-                    console.error('Publikacja zdjęcia na Facebooku w tle nie powiodła się:', err.message);
-                });
-
-            } catch (publishError) {
-                console.error('Nie udało się zainicjować publikacji posta powitalnego:', publishError.message);
+                await pubSubClient.topic(topicName).publishMessage({ data: dataBuffer });
+                console.log(`Wysłano zlecenie wygenerowania Rolki dla profilu: ${newProfileData.food_truck_name}`);
+            } catch (error) {
+                console.error(`Nie udało się wysłać zlecenia do Pub/Sub: ${error.message}`);
             }
         }
         // --- KONIEC ZAKTUALIZOWANEGO KODU ---

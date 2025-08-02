@@ -1,17 +1,18 @@
 const pool = require('../db');
 const axios = require('axios');
 const { Storage } = require('@google-cloud/storage');
-// Importujemy klienta Pub/Sub
 const { PubSub } = require('@google-cloud/pubsub');
 
 // Inicjalizujemy Pub/Sub
 const pubSubClient = new PubSub();
-const topicName = 'reels-generation-topic'; // Nazwa naszej kolejki zleceń
+const reelsTopicName = 'reels-generation-topic'; // Kolejka dla Rolek
+const postsTopicName = 'post-publication-topic'; // NOWA kolejka dla Postów
 
 const storage = new Storage();
 const bucketName = process.env.GCS_BUCKET_NAME;
 const bucket = storage.bucket(bucketName);
 
+// ... Twoje funkcje pomocnicze (uploadFileToGCS, geocode) bez zmian ...
 const uploadFileToGCS = (file) => {
   return new Promise((resolve, reject) => {
     const { originalname, buffer } = file;
@@ -45,6 +46,7 @@ async function geocode(locationString) {
     }
 }
 
+
 exports.createProfile = async (req, res) => {
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;
     const ownerId = parseInt(req.user.userId, 10);
@@ -54,6 +56,7 @@ exports.createProfile = async (req, res) => {
     }
 
     try {
+        // ... kod do zapisu profilu w bazie (bez zmian) ...
         let galleryPhotoUrls = [];
         if (req.files && req.files.length > 0) {
             const uploadPromises = req.files.map(uploadFileToGCS);
@@ -73,12 +76,18 @@ exports.createProfile = async (req, res) => {
         const newProfileData = newProfile.rows[0];
 
         // --- ZAKTUALIZOWANY KOD ---
-        // Zamiast publikować, wysyłamy zlecenie do naszego "studia filmowego"
+        // Wysyłamy teraz DWA zlecenia: jedno do tworzenia Rolki, drugie do tworzenia Posta.
         if (newProfileData && newProfileData.gallery_photo_urls && newProfileData.gallery_photo_urls.length > 0) {
             const dataBuffer = Buffer.from(JSON.stringify(newProfileData));
             try {
-                await pubSubClient.topic(topicName).publishMessage({ data: dataBuffer });
-                console.log(`Wysłano zlecenie wygenerowania Rolki dla profilu: ${newProfileData.food_truck_name}`);
+                // Zlecenie nr 1: Wygeneruj Rolkę
+                await pubSubClient.topic(reelsTopicName).publishMessage({ data: dataBuffer });
+                console.log(`Wysłano zlecenie WYGENEROWANIA ROLKI dla profilu: ${newProfileData.food_truck_name}`);
+
+                // Zlecenie nr 2: Opublikuj Post
+                await pubSubClient.topic(postsTopicName).publishMessage({ data: dataBuffer });
+                console.log(`Wysłano zlecenie PUBLIKACJI POSTA dla profilu: ${newProfileData.food_truck_name}`);
+
             } catch (error) {
                 console.error(`Nie udało się wysłać zlecenia do Pub/Sub: ${error.message}`);
             }
@@ -93,6 +102,7 @@ exports.createProfile = async (req, res) => {
     }
 };
 
+// ... reszta pliku (updateProfile, getMyProfiles, etc.) bez zmian ...
 exports.updateProfile = async (req, res) => {
     const { profileId: profileIdParam } = req.params;
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;

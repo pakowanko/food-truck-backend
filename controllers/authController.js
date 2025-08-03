@@ -82,26 +82,50 @@ exports.register = async (req, res) => {
     }
 };
 
+// --- ZAKTUALIZOWANA FUNKCJA WERYFIKACJI ---
 exports.verifyEmail = async (req, res) => {
     const { token } = req.query;
+    // Adres bazowy Twojej aplikacji frontendowej
+    const APP_BASE_URL = 'https://app.bookthefoodtruck.eu';
+
     try {
         const result = await pool.query('SELECT * FROM users WHERE verification_token = $1', [token]);
         if (result.rows.length === 0) {
-            return res.status(400).json({ message: 'Nieprawidłowy lub wygasły token weryfikacyjny.' });
+            // Jeśli token jest zły, przekieruj na stronę błędu
+            return res.redirect(`${APP_BASE_URL}/verification-result?success=false`);
         }
         
         const user = result.rows[0];
+        
+        // Jeśli konto jest już zweryfikowane, po prostu przekieruj do logowania
+        if (user.is_verified) {
+            return res.redirect(`${APP_BASE_URL}/login`);
+        }
+
         await pool.query(
             'UPDATE users SET is_verified = TRUE, verification_token = NULL WHERE user_id = $1',
             [user.user_id]
         );
 
-        res.json({ message: 'Konto zostało pomyślnie zweryfikowane.' });
+        // KROK 1: Generujemy token logowania (JWT) dla zweryfikowanego użytkownika
+        const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
+        const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        // KROK 2: Ustalamy, gdzie przekierować użytkownika w zależności od jego typu
+        const redirectTo = user.user_type === 'food_truck_owner' ? '/create-profile' : '/dashboard';
+
+        // KROK 3: Tworzymy finalny URL przekierowania, dołączając do niego token i ścieżkę docelową
+        const redirectUrl = `${APP_BASE_URL}/verify-login?token=${jwtToken}&redirect=${redirectTo}`;
+
+        // KROK 4: Przekierowujemy przeglądarkę użytkownika na ten URL
+        res.redirect(redirectUrl);
+
     } catch (error) {
         console.error('Błąd podczas weryfikacji emaila:', error);
-        res.status(500).json({ message: 'Błąd serwera.' });
+        res.redirect(`${APP_BASE_URL}/verification-result?success=false`);
     }
 };
+// --- KONIEC ZAKTUALIZOWANEJ FUNKCJI ---
 
 exports.login = async (req, res) => {
     const { email, password } = req.body;

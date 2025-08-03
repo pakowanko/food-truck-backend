@@ -1,5 +1,5 @@
 const sgMail = require('@sendgrid/mail');
-const jwt = require('jsonwebtoken'); // <-- NOWY IMPORT
+const jwt = require('jsonwebtoken'); // Upewnij się, że ten import istnieje
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const APP_URL = 'https://app.bookthefoodtruck.eu';
@@ -73,6 +73,7 @@ async function sendVerificationEmail(recipientEmail, token) {
     await sgMail.send(msg);
 }
 
+// ... inne funkcje e-mail bez zmian ...
 async function sendPasswordResetEmail(recipientEmail, token) {
     const resetUrl = `${APP_URL}/reset-password?token=${token}`;
     const title = 'Prośba o zresetowanie hasła';
@@ -136,6 +137,7 @@ async function sendPackagingReminderEmail(recipientEmail, foodTruckName) {
     console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
 }
 
+
 // --- ZAKTUALIZOWANA FUNKCJA PRZYPOMNIENIA O PROFILU ---
 async function sendCreateProfileReminderEmail(user) {
     const title = `Nie trać klientów na Book The Food Truck!`;
@@ -144,8 +146,8 @@ async function sendCreateProfileReminderEmail(user) {
     const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
     const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    // Krok 2: Tworzymy specjalny link do automatycznego logowania i przekierowania
-    const autoLoginUrl = `${APP_URL}/verify-login?token=${jwtToken}&redirect=/create-profile`;
+    // Krok 2: Tworzymy nowy link, który kieruje do strony weryfikacji, ale z innym parametrem
+    const autoLoginUrl = `${APP_URL}/verify-email?reminder_token=${jwtToken}`;
 
     const body = `
         <p>Cześć ${user.first_name},</p>

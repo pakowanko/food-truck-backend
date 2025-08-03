@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
-const cors = require('cors');
+const cors = require('cors'); // Używamy biblioteki CORS
 const { Server } = require("socket.io");
 const path = require('path');
 const fs = require('fs');
@@ -25,26 +25,19 @@ const { createBrandedEmail } = require('./utils/emailTemplate');
 
 const app = express();
 
-// --- ZMIANA JEST TUTAJ ---
-// Dodajemy nową subdomenę do listy zaufanych źródeł
+// --- ZAKTUALIZOWANA KONFIGURACJA CORS ---
 const allowedOrigins = [
-  'https://pakowanko-1723651322373.web.app', // Stary adres do testów
-  'https://app.bookthefoodtruck.eu'          // Nowa, oficjalna subdomena aplikacji
+  'https://pakowanko-1723651322373.web.app', // Stary adres (jeśli wciąż używany)
+  'https://app.bookthefoodtruck.eu'          // Nowy, oficjalny adres frontendu
 ];
 
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: allowedOrigins, // Przekazujemy tablicę bezpośrednio
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
   allowedHeaders: "Content-Type,Authorization",
-  optionsSuccessStatus: 200,
   credentials: true
 };
+
 app.use(cors(corsOptions));
 // --- KONIEC ZMIANY ---
 

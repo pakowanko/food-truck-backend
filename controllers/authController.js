@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
-const { sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail, sendProfileCreationReminderEmail } = require('../utils/emailTemplate'); // Dodaj import nowej funkcji email
+const { sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail } = require('../utils/emailTemplate');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -12,7 +12,7 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const GOOGLE_CLIENT_ID = '1035693089076-606q1auo4o0cb62lmj21djqeqjvor4pj.apps.googleusercontent.com';
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-// Funkcja register pozostaje bez zmian
+// --- ZAKTUALIZOWANA FUNKCJA REJESTRACJI ---
 exports.register = async (req, res) => {
     const { 
         email, password, user_type, first_name, last_name, 
@@ -69,12 +69,26 @@ exports.register = async (req, res) => {
         ];
         
         await dbClient.query(query, values);
-
-        await sendVerificationEmail(email, verificationToken);
         
+        // --- POPRAWIONA KOLEJNOŚĆ ---
+        // 1. Najpierw zatwierdzamy transakcję w bazie danych.
         await dbClient.query('COMMIT');
+        
+        // 2. Dopiero po udanym zapisie wysyłamy e-mail.
+        // Jeśli ten krok się nie uda, użytkownik jest już w bazie i może poprosić o nowy link.
+        // To lepsze niż wysłanie linku, który nigdy nie będzie działać.
+        try {
+            await sendVerificationEmail(email, verificationToken);
+        } catch (emailError) {
+            console.error('Błąd podczas wysyłania e-maila weryfikacyjnego (użytkownik został już zapisany w bazie):', emailError);
+            // Nie zwracamy błędu do użytkownika, ponieważ z jego perspektywy rejestracja się udała.
+            // Problem z e-mailem jest kwestią do rozwiązania po stronie serwera.
+        }
+        
         res.status(201).json({ message: 'Rejestracja pomyślna. Sprawdź swój e-mail, aby aktywować konto.' });
+
     } catch (error) {
+        // Jeśli błąd wystąpi przed lub w trakcie COMMIT, wycofujemy transakcję.
         await dbClient.query('ROLLBACK');
         console.error('Błąd podczas rejestracji:', error);
         res.status(500).json({ message: error.message || 'Błąd serwera podczas rejestracji.' });
@@ -83,8 +97,7 @@ exports.register = async (req, res) => {
     }
 };
 
-
-// --- ZAKTUALIZOWANA FUNKCJA WERYFIKACJI ---
+// --- FUNKCJA WERYFIKACJI (bez zmian, ale dla kompletności) ---
 exports.verifyEmail = async (req, res) => {
     const { token } = req.query;
     if (!token) {
@@ -98,12 +111,11 @@ exports.verifyEmail = async (req, res) => {
         
         const user = result.rows[0];
 
-        // Jeśli konto jest już zweryfikowane, po prostu generujemy nowy token i odsyłamy do logowania
         if (user.is_verified) {
              return res.json({ 
                 success: true, 
                 message: 'Konto jest już aktywne. Możesz się zalogować.',
-                token: null, // Nie generujemy nowego tokena, użytkownik musi się zalogować manualnie
+                token: null,
                 redirect: '/login'
             });
         }
@@ -113,14 +125,11 @@ exports.verifyEmail = async (req, res) => {
             [user.user_id]
         );
 
-        // Generujemy token JWT do automatycznego zalogowania
         const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
         const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-        // Ustalamy, gdzie przekierować użytkownika
         const redirectPath = user.user_type === 'food_truck_owner' ? '/create-profile' : '/dashboard';
 
-        // Zwracamy do frontendu wszystkie potrzebne informacje
         res.json({ 
             success: true, 
             message: 'Konto zostało pomyślnie zweryfikowane.',
@@ -134,7 +143,7 @@ exports.verifyEmail = async (req, res) => {
     }
 };
 
-// --- NOWY ENDPOINT DO OBSŁUGI LOGOWANIA Z PRZYPOMNIENIA ---
+// --- ENDPOINT DO LOGOWANIA Z PRZYPOMNIENIA (bez zmian) ---
 exports.loginWithReminderToken = async (req, res) => {
     const { token } = req.body;
     if (!token) {
@@ -142,17 +151,13 @@ exports.loginWithReminderToken = async (req, res) => {
     }
 
     try {
-        // Ten token to JEST JWT wygenerowany specjalnie na potrzeby przypomnienia
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
         const userResult = await pool.query('SELECT * FROM users WHERE user_id = $1', [decoded.userId]);
         if (userResult.rows.length === 0) {
             return res.status(404).json({ message: 'Użytkownik nie znaleziony.' });
         }
-
         const user = userResult.rows[0];
 
-        // Sprawdzamy, czy użytkownik jest zweryfikowany i nie jest zablokowany
         if (!user.is_verified) {
             return res.status(403).json({ message: 'Konto nie zostało jeszcze aktywowane.' });
         }
@@ -160,17 +165,14 @@ exports.loginWithReminderToken = async (req, res) => {
             return res.status(403).json({ message: 'Twoje konto zostało zablokowane.' });
         }
         
-        // Jeśli wszystko jest ok, po prostu odsyłamy sukces.
-        // Frontend już ma token, więc nie musimy go ponownie wysyłać.
-        // Możemy jednak odświeżyć token, jeśli chcemy.
         const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
         const newJwtToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
         res.json({
             success: true,
             message: 'Zalogowano pomyślnie.',
-            token: newJwtToken, // Odsyłamy świeży token
-            redirect: '/create-profile' // Zawsze do tworzenia profilu w tym przypadku
+            token: newJwtToken,
+            redirect: '/create-profile'
         });
 
     } catch (error) {
@@ -182,38 +184,7 @@ exports.loginWithReminderToken = async (req, res) => {
     }
 };
 
-
-// --- PRZYKŁADOWA FUNKCJA DO WYSYŁANIA PRZYPOMNIENIA ---
-// Należy ją wywołać w odpowiednim miejscu (np. zadanie CRON)
-exports.sendReminder = async (userId) => {
-    try {
-        const userResult = await pool.query('SELECT * FROM users WHERE user_id = $1', [userId]);
-        if (userResult.rows.length === 0) {
-            console.log(`Nie znaleziono użytkownika o ID: ${userId} do wysłania przypomnienia.`);
-            return;
-        }
-        const user = userResult.rows[0];
-
-        // Sprawdzamy, czy użytkownik to właściciel food trucka i czy nie ma jeszcze profilu
-        // (to wymaga dodania flagi np. `has_profile` w tabeli users lub sprawdzenia w tabeli profili)
-        // Dla przykładu załóżmy, że wysyłamy, jeśli jest właścicielem
-        if (user.user_type === 'food_truck_owner') {
-             // Generujemy specjalny token JWT, który posłuży do automatycznego logowania
-            const payload = { userId: user.user_id, email: user.email, action: 'reminder_login' };
-            const reminderToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-            // Wywołujemy funkcję do wysyłania maila z tym tokenem
-            await sendProfileCreationReminderEmail(user.email, reminderToken);
-            console.log(`Wysłano przypomnienie do ${user.email}`);
-        }
-    } catch (error) {
-        console.error('Błąd podczas wysyłania przypomnienia:', error);
-    }
-};
-
-
-// Funkcje login, googleLogin, getProfile, requestPasswordReset, resetPassword pozostają bez zmian.
-// ... (reszta kodu bez zmian)
+// Pozostałe funkcje (login, googleLogin, etc.) pozostają bez zmian.
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -301,22 +272,7 @@ exports.getProfile = async (req, res) => {
         const userResult = await pool.query(query, [req.user.userId]);
 
         if (userResult.rows.length > 0) {
-            const userProfile = userResult.rows[0];
-            res.json({
-                userId: userProfile.user_id,
-                email: userProfile.email,
-                user_type: userProfile.user_type,
-                first_name: userProfile.first_name,
-                last_name: userProfile.last_name,
-                company_name: userProfile.company_name,
-                nip: userProfile.nip,
-                phone_number: userProfile.phone_number,
-                country_code: userProfile.country_code,
-                street_address: userProfile.street_address,
-                postal_code: userProfile.postal_code,
-                city: userProfile.city,
-                role: userProfile.role
-            });
+            res.json(userResult.rows[0]);
         } else {
             res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
         }

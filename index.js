@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
-const cors = require('cors'); // Używamy biblioteki CORS
+const cors = require('cors');
 const { Server } = require("socket.io");
 const path = require('path');
 const fs = require('fs');
@@ -11,6 +11,7 @@ const pool = require('./db');
 const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+// Importy tras bez zmian
 const authRoutes = require('./routes/authRoutes');
 const foodTruckProfileRoutes = require('./routes/foodTruckProfileRoutes');
 const bookingRequestRoutes = require('./routes/bookingRequestRoutes');
@@ -25,22 +26,20 @@ const { createBrandedEmail } = require('./utils/emailTemplate');
 
 const app = express();
 
-// --- ZAKTUALIZOWANA KONFIGURACJA CORS ---
+// Konfiguracja CORS jest już poprawna, zostawiamy ją bez zmian
 const allowedOrigins = [
-  'https://pakowanko-1723651322373.web.app', // Stary adres (jeśli wciąż używany)
-  'https://app.bookthefoodtruck.eu'          // Nowy, oficjalny adres frontendu
+  'https://pakowanko-1723651322373.web.app',
+  'https://app.bookthefoodtruck.eu'
 ];
 
 const corsOptions = {
-  origin: allowedOrigins, // Przekazujemy tablicę bezpośrednio
+  origin: allowedOrigins,
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
   allowedHeaders: "Content-Type,Authorization",
   credentials: true
 };
 
 app.use(cors(corsOptions));
-// --- KONIEC ZMIANY ---
-
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -49,19 +48,23 @@ app.use((req, res, next) => {
 });
 
 const server = http.createServer(app);
+
+// Inicjalizacja Socket.IO jest już poprawna, zostawiamy ją bez zmian
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins, // Używamy tej samej listy dla Socket.IO
+    origin: allowedOrigins,
     methods: ["GET", "POST"]
   }
 });
 
 const PORT = process.env.PORT || 8080;
 
+// Konfiguracja statycznych plików bez zmian
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));
 
+// Rejestracja tras bez zmian
 app.use('/api/auth', authRoutes);
 app.use('/api/profiles', foodTruckProfileRoutes);
 app.use('/api/requests', bookingRequestRoutes);
@@ -76,19 +79,32 @@ app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');
 });
 
+// --- ZAKTUALIZOWANA LOGIKA SOCKET.IO ---
 io.on('connection', (socket) => {
   console.log('✅ Użytkownik połączył się z Socket.IO:', socket.id);
 
   socket.on('register_user', (userId) => {
-    socket.join(userId.toString());
-    console.log(`Użytkownik ${socket.id} zarejestrowany w prywatnym pokoju ${userId}`);
+    // --- POPRAWKA: Sprawdzamy, czy userId nie jest puste ---
+    // Zapobiega to błędowi "TypeError: Cannot read properties of null (reading 'toString')"
+    if (userId) {
+      socket.join(userId.toString());
+      console.log(`Użytkownik ${socket.id} zarejestrowany w prywatnym pokoju ${userId}`);
+    } else {
+      console.warn(`Ostrzeżenie: Otrzymano próbę rejestracji z pustym userId od socketu: ${socket.id}`);
+    }
   });
   
   socket.on('join_room', (conversationId) => {
-    socket.join(conversationId);
-    console.log(`Użytkownik ${socket.id} dołączył do pokoju czatu ${conversationId}`);
+    // --- POPRAWKA: Dodajemy zabezpieczenie również tutaj ---
+    if (conversationId) {
+      socket.join(conversationId);
+      console.log(`Użytkownik ${socket.id} dołączył do pokoju czatu ${conversationId}`);
+    } else {
+      console.warn(`Ostrzeżenie: Otrzymano próbę dołączenia do pokoju z pustym conversationId od socketu: ${socket.id}`);
+    }
   });
 
+  // Logika send_message pozostaje bez zmian, jest już dobrze zabezpieczona
   socket.on('send_message', async (data) => {
     const { conversation_id, sender_id, message_content } = data;
     const censoredMessage = censorContactInfo(message_content);

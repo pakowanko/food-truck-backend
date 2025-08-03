@@ -1,11 +1,13 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const jwt = require('jsonwebtoken'); // <-- WAŻNE: Dodajemy import JWT
 const { sendPackagingReminderEmail, sendCreateProfileReminderEmail } = require('../utils/emailTemplate');
 const { PubSub } = require('@google-cloud/pubsub');
 
 const pubSubClient = new PubSub();
 const topicName = 'reels-generation-topic';
 
+// Funkcja sendDailyReminders pozostaje bez zmian
 exports.sendDailyReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o opakowaniach.');
     try {
@@ -35,6 +37,7 @@ exports.sendDailyReminders = async (req, res) => {
     }
 };
 
+// Funkcja generateDailyInvoices pozostaje bez zmian
 exports.generateDailyInvoices = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie generowania faktur.');
     try {
@@ -90,11 +93,11 @@ exports.generateDailyInvoices = async (req, res) => {
     }
 };
 
+// --- ZAKTUALIZOWANA FUNKCJA WYSYŁANIA PRZYPOMNIEŃ O PROFILU ---
 exports.sendProfileCreationReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o utworzeniu profilu.');
     try {
-        // --- ZAKTUALIZOWANE ZAPYTANIE ---
-        // Pobieramy teraz cały obiekt użytkownika (u.*), a nie tylko wybrane pola.
+        // Zapytanie pozostaje bez zmian, pobiera wszystkich zweryfikowanych właścicieli bez profili
         const result = await pool.query(`
             SELECT u.*
             FROM users u
@@ -110,8 +113,18 @@ exports.sendProfileCreationReminders = async (req, res) => {
         }
 
         for (const user of result.rows) {
-            // Przekazujemy cały obiekt 'user' do funkcji wysyłającej e-mail
-            await sendCreateProfileReminderEmail(user);
+            // Generujemy specjalny token JWT, który posłuży do automatycznego logowania
+            const payload = { 
+                userId: user.user_id, 
+                email: user.email, 
+                user_type: user.user_type, 
+                role: user.role,
+                action: 'reminder_login' // Dobra praktyka, żeby wiedzieć do czego służy token
+            };
+            const reminderToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+            // Wywołujemy funkcję do wysyłania maila, przekazując email i nowo wygenerowany token
+            await sendCreateProfileReminderEmail(user.email, reminderToken);
         }
 
         console.log(`[Cron] Wysłano pomyślnie ${result.rows.length} przypomnień o utworzeniu profilu.`);
@@ -123,6 +136,7 @@ exports.sendProfileCreationReminders = async (req, res) => {
     }
 };
 
+// Funkcja publishAllExistingProfiles pozostaje bez zmian
 exports.publishAllExistingProfiles = async (req, res) => {
     console.log('[Admin] Uruchomiono zadanie wysyłania zleceń dla istniejących profili.');
     

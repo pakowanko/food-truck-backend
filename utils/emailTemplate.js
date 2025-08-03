@@ -1,4 +1,5 @@
 const sgMail = require('@sendgrid/mail');
+const jwt = require('jsonwebtoken'); // <-- NOWY IMPORT
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const APP_URL = 'https://app.bookthefoodtruck.eu';
@@ -135,13 +136,22 @@ async function sendPackagingReminderEmail(recipientEmail, foodTruckName) {
     console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
 }
 
-async function sendCreateProfileReminderEmail(recipientEmail, firstName) {
+// --- ZAKTUALIZOWANA FUNKCJA PRZYPOMNIENIA O PROFILU ---
+async function sendCreateProfileReminderEmail(user) {
     const title = `Nie trać klientów na Book The Food Truck!`;
+    
+    // Krok 1: Generujemy token logowania (JWT) dla użytkownika
+    const payload = { userId: user.user_id, email: user.email, user_type: user.user_type, role: user.role };
+    const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    // Krok 2: Tworzymy specjalny link do automatycznego logowania i przekierowania
+    const autoLoginUrl = `${APP_URL}/verify-login?token=${jwtToken}&redirect=/create-profile`;
+
     const body = `
-        <p>Cześć ${firstName},</p>
+        <p>Cześć ${user.first_name},</p>
         <p>Zauważyliśmy, że zarejestrowałeś się na naszej platformie, ale nie utworzyłeś jeszcze profilu swojego food trucka. W międzyczasie, organizatorzy z Twojej okolicy aktywnie poszukują ofert na swoje wydarzenia!</p>
         <p>Nie pozwól, aby ominęły Cię potencjalne rezerwacje. Uzupełnienie profilu zajmuje tylko kilka minut, a dzięki niemu Twoja oferta stanie się widoczna dla setek organizatorów.</p>
-        <a href="${APP_URL}/create-profile" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+        <a href="${autoLoginUrl}" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
             Uzupełnij profil teraz
         </a>
         <p>Pokaż się klientom i zacznij zarabiać z Book The Food Truck!</p>
@@ -149,13 +159,13 @@ async function sendCreateProfileReminderEmail(recipientEmail, firstName) {
     const finalHtml = createBrandedEmail(title, body);
 
     const msg = {
-        to: recipientEmail,
+        to: user.email,
         from: { email: process.env.SENDER_EMAIL, name: 'Book The Food Truck' },
         subject: title,
         html: finalHtml,
     };
     await sgMail.send(msg);
-    console.log(`Wysłano przypomnienie o utworzeniu profilu do ${recipientEmail}`);
+    console.log(`Wysłano przypomnienie o utworzeniu profilu (z auto-logowaniem) do ${user.email}`);
 }
 
 module.exports = { createBrandedEmail, sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail, sendPackagingReminderEmail, sendCreateProfileReminderEmail };

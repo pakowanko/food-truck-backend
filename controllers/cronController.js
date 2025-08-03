@@ -1,7 +1,10 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { sendPackagingReminderEmail, sendCreateProfileReminderEmail } = require('../utils/emailTemplate');
-const { publishPhotoToFacebook } = require('../utils/facebookPublisher'); // <-- DODANY IMPORT
+const { PubSub } = require('@google-cloud/pubsub');
+
+const pubSubClient = new PubSub();
+const topicName = 'reels-generation-topic';
 
 exports.sendDailyReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o opakowaniach.');
@@ -90,8 +93,10 @@ exports.generateDailyInvoices = async (req, res) => {
 exports.sendProfileCreationReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o utworzeniu profilu.');
     try {
+        // --- ZAKTUALIZOWANE ZAPYTANIE ---
+        // Pobieramy teraz cały obiekt użytkownika (u.*), a nie tylko wybrane pola.
         const result = await pool.query(`
-            SELECT u.user_id, u.email, u.first_name
+            SELECT u.*
             FROM users u
             LEFT JOIN food_truck_profiles p ON u.user_id = p.owner_id
             WHERE u.user_type = 'food_truck_owner' AND u.is_verified = TRUE
@@ -105,7 +110,8 @@ exports.sendProfileCreationReminders = async (req, res) => {
         }
 
         for (const user of result.rows) {
-            await sendCreateProfileReminderEmail(user.email, user.first_name);
+            // Przekazujemy cały obiekt 'user' do funkcji wysyłającej e-mail
+            await sendCreateProfileReminderEmail(user);
         }
 
         console.log(`[Cron] Wysłano pomyślnie ${result.rows.length} przypomnień o utworzeniu profilu.`);
@@ -117,10 +123,8 @@ exports.sendProfileCreationReminders = async (req, res) => {
     }
 };
 
-
-// --- NOWA FUNKCJA DO PUBLIKACJI ISTNIEJĄCYCH PROFILI ---
 exports.publishAllExistingProfiles = async (req, res) => {
-    console.log('[Admin] Uruchomiono zadanie publikacji wszystkich istniejących profili na Facebooku.');
+    console.log('[Admin] Uruchomiono zadanie wysyłania zleceń dla istniejących profili.');
     
     try {
         const profilesResult = await pool.query('SELECT * FROM food_truck_profiles');
@@ -131,30 +135,29 @@ exports.publishAllExistingProfiles = async (req, res) => {
             return res.status(200).send('Brak profili do opublikowania.');
         }
 
-        console.log(`[Admin] Znaleziono ${profiles.length} profili. Rozpoczynanie publikacji...`);
+        console.log(`[Admin] Znaleziono ${profiles.length} profili. Rozpoczynanie wysyłania zleceń...`);
 
         let successCount = 0;
         let failureCount = 0;
 
         for (const profile of profiles) {
-            try {
-                const profileUrl = `https://app.bookthefoodtruck.eu/profil/${profile.profile_id}`;
-                const message = `👋 Przedstawiamy kolejny świetny food truck na naszej platformie: ${profile.food_truck_name}!\n\nSprawdźcie jego profil i zarezerwujcie na swoją imprezę 👉 ${profileUrl}\n\n🚚 #foodtruck #jedzenie #impreza #bookthefoodtruck`;
-                const photoUrl = profile.profile_image_url;
-
-                await publishPhotoToFacebook(message, photoUrl);
-                successCount++;
-                
-                // Dodajemy 5-sekundowe opóźnienie, aby nie zalać API Facebooka
-                await new Promise(resolve => setTimeout(resolve, 5000)); 
-
-            } catch (postError) {
-                console.error(`[Admin] Nie udało się opublikować profilu ${profile.food_truck_name} (ID: ${profile.profile_id}). Błąd:`, postError.message);
-                failureCount++;
+            if (profile.gallery_photo_urls && profile.gallery_photo_urls.length > 0) {
+                const dataBuffer = Buffer.from(JSON.stringify(profile));
+                try {
+                    await pubSubClient.topic(topicName).publishMessage({ data: dataBuffer });
+                    console.log(`[Admin] Wysłano zlecenie backfill dla profilu: ${profile.food_truck_name}`);
+                    successCount++;
+                    await new Promise(resolve => setTimeout(resolve, 200)); 
+                } catch (pubSubError) {
+                    console.error(`[Admin] Nie udało się wysłać zlecenia backfill dla profilu ${profile.food_truck_name}. Błąd:`, pubSubError.message);
+                    failureCount++;
+                }
+            } else {
+                console.log(`[Admin] Pominięto profil ${profile.food_truck_name} (ID: ${profile.profile_id}) z powodu braku zdjęć.`);
             }
         }
 
-        const summary = `Zakończono zadanie. Opublikowano pomyślnie: ${successCount}. Błędy: ${failureCount}.`;
+        const summary = `Zakończono zadanie. Wysłano zleceń: ${successCount}. Błędy: ${failureCount}.`;
         console.log(`[Admin] ${summary}`);
         res.status(200).send(summary);
 

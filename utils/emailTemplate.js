@@ -1,12 +1,10 @@
 const sgMail = require('@sendgrid/mail');
-// Usunęliśmy import 'jsonwebtoken', ponieważ nie jest już tutaj potrzebny.
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const APP_URL = 'https://app.bookthefoodtruck.eu';
 const LANDING_PAGE_URL = 'https://www.bookthefoodtruck.eu';
 const PARTNER_URL = 'https://www.pakowanko.com';
     
-// Funkcja createBrandedEmail pozostaje bez zmian
 function createBrandedEmail(title, bodyHtml) {
     const logoUrl = 'https://storage.googleapis.com/foodtruck_storage/Logo%20BookTheFoodTruck.jpeg'; 
     const contactEmail = 'info@bookthefoodtruck.eu';
@@ -53,7 +51,6 @@ function createBrandedEmail(title, bodyHtml) {
     `;
 }
 
-// Funkcja sendVerificationEmail pozostaje bez zmian
 async function sendVerificationEmail(recipientEmail, token) {
     const verificationUrl = `${APP_URL}/verify-email?token=${token}`;
     const title = 'Potwierdź swoje konto w Book The Food Truck';
@@ -75,7 +72,6 @@ async function sendVerificationEmail(recipientEmail, token) {
     await sgMail.send(msg);
 }
 
-// Funkcja sendPasswordResetEmail pozostaje bez zmian
 async function sendPasswordResetEmail(recipientEmail, token) {
     const resetUrl = `${APP_URL}/reset-password?token=${token}`;
     const title = 'Prośba o zresetowanie hasła';
@@ -96,10 +92,8 @@ async function sendPasswordResetEmail(recipientEmail, token) {
         html: finalHtml,
     };
     await sgMail.send(msg);
-    console.log(`Wysłano link do resetu hasła na adres ${recipientEmail}`);
 }
 
-// Funkcja sendGoogleWelcomeEmail pozostaje bez zmian
 async function sendGoogleWelcomeEmail(recipientEmail, firstName) {
     const title = `Witaj w Book The Food Truck, ${firstName}!`;
     const body = `
@@ -118,10 +112,8 @@ async function sendGoogleWelcomeEmail(recipientEmail, firstName) {
         html: finalHtml,
     };
     await sgMail.send(msg);
-    console.log(`Wysłano maila powitalnego (Google) na adres ${recipientEmail}`);
 }
 
-// Funkcja sendPackagingReminderEmail pozostaje bez zmian
 async function sendPackagingReminderEmail(recipientEmail, foodTruckName) {
     const title = `Przypomnienie: Zamów opakowania dla ${foodTruckName}`;
     const body = `
@@ -138,16 +130,10 @@ async function sendPackagingReminderEmail(recipientEmail, foodTruckName) {
         html: finalHtml,
     };
     await sgMail.send(msg);
-    console.log(`Wysłano przypomnienie o opakowaniach do ${recipientEmail}`);
 }
 
-
-// --- ZAKTUALIZOWANA FUNKCJA PRZYPOMNIENIA O PROFILU ---
-// Teraz przyjmuje email i gotowy token jako argumenty.
 async function sendCreateProfileReminderEmail(recipientEmail, token) {
     const title = `Nie trać klientów na Book The Food Truck!`;
-    
-    // Tworzymy link z gotowym tokenem.
     const autoLoginUrl = `${APP_URL}/verify-email?reminder_token=${token}`;
 
     const body = `
@@ -168,7 +154,55 @@ async function sendCreateProfileReminderEmail(recipientEmail, token) {
         html: finalHtml,
     };
     await sgMail.send(msg);
-    console.log(`Wysłano przypomnienie o utworzeniu profilu (z auto-logowaniem) do ${recipientEmail}`);
 }
 
-module.exports = { createBrandedEmail, sendVerificationEmail, sendPasswordResetEmail, sendGoogleWelcomeEmail, sendPackagingReminderEmail, sendCreateProfileReminderEmail };
+// --- NOWA FUNKCJA DO WYSYŁANIA POWIADOMIEŃ O REJESTRACJI ---
+
+/**
+ * Wysyła powiadomienie o nowej rejestracji na wewnętrzny adres e-mail.
+ * @param {object} userData - Obiekt z danymi nowo zarejestrowanego użytkownika.
+ */
+async function sendNewUserAdminNotification(userData) {
+    const adminEmail = 'pakowanko.info@gmail.com';
+    const subject = `✅ Nowa rejestracja w BookTheFoodTruck: ${userData.email}`;
+
+    const bodyHtml = `
+        <h1>Nowy użytkownik!</h1>
+        <p>W systemie zarejestrował się nowy użytkownik. Oto jego dane:</p>
+        <ul>
+            <li><strong>Email:</strong> ${userData.email || 'Brak'}</li>
+            <li><strong>Typ konta:</strong> ${userData.user_type || 'Brak'}</li>
+            <li><strong>Imię:</strong> ${userData.first_name || 'Brak'}</li>
+            <li><strong>Nazwisko:</strong> ${userData.last_name || 'Brak'}</li>
+            <li><strong>Nazwa firmy:</strong> ${userData.company_name || 'Brak'}</li>
+            <li><strong>NIP:</strong> ${userData.nip || 'Brak'}</li>
+            <li><strong>Telefon:</strong> ${userData.phone_number || 'Brak'}</li>
+            <li><strong>Adres:</strong> ${userData.street_address || ''}, ${userData.postal_code || ''} ${userData.city || ''}</li>
+        </ul>
+    `;
+
+    const msg = {
+        to: adminEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'System BookTheFoodTruck' },
+        subject: subject,
+        html: bodyHtml,
+    };
+
+    try {
+        await sgMail.send(msg);
+        console.log(`Powiadomienie o nowym użytkowniku (${userData.email}) wysłane do ${adminEmail}`);
+    } catch (error) {
+        console.error('Błąd podczas wysyłania powiadomienia o nowym użytkowniku:', error);
+    }
+}
+
+// Eksportujemy wszystkie funkcje, w tym nową
+module.exports = {
+    createBrandedEmail,
+    sendVerificationEmail,
+    sendPasswordResetEmail,
+    sendGoogleWelcomeEmail,
+    sendPackagingReminderEmail,
+    sendCreateProfileReminderEmail,
+    sendNewUserAdminNotification
+};

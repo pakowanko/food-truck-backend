@@ -3,16 +3,15 @@ const axios = require('axios');
 const { Storage } = require('@google-cloud/storage');
 const { PubSub } = require('@google-cloud/pubsub');
 
-// Inicjalizujemy Pub/Sub
+// ... reszta Twoich importów i funkcji pomocniczych (geocode, etc.) bez zmian ...
 const pubSubClient = new PubSub();
-const reelsTopicName = 'reels-generation-topic'; // Kolejka dla Rolek
-const postsTopicName = 'post-publication-topic'; // NOWA kolejka dla Postów
+const reelsTopicName = 'reels-generation-topic';
+const postsTopicName = 'post-publication-topic';
 
 const storage = new Storage();
 const bucketName = process.env.GCS_BUCKET_NAME;
 const bucket = storage.bucket(bucketName);
 
-// ... Twoje funkcje pomocnicze (uploadFileToGCS, geocode) bez zmian ...
 const uploadFileToGCS = (file) => {
   return new Promise((resolve, reject) => {
     const { originalname, buffer } = file;
@@ -47,6 +46,95 @@ async function geocode(locationString) {
 }
 
 
+// --- ZOPTYMALIZOWANA FUNKCJA WYSZUKIWANIA ---
+exports.getAllProfiles = async (req, res) => {
+    const { cuisine, postal_code, event_start_date, event_end_date, min_rating, long_term_rental } = req.query;
+
+    // Zaczynamy budować zapytanie
+    let query = `
+        SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
+    `;
+    const values = [];
+    let fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`;
+    const whereClauses = [];
+
+    // --- KLUCZOWA ZMIANA: Używamy teraz funkcji PostGIS, które wykorzystają nasz nowy indeks ---
+    if (postal_code) {
+        try {
+            const { lat, lon } = await geocode(postal_code);
+            if (lat && lon) {
+                // Dodajemy do SELECT obliczanie dystansu w kilometrach
+                query += `, ST_Distance(
+                    ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
+                    ST_MakePoint($${values.length + 1}, $${values.length + 2})::geography
+                ) / 1000 as distance`;
+                values.push(lon, lat); // Ważna kolejność: najpierw długość (lon), potem szerokość (lat)
+
+                // Dodajemy do WHERE warunek, który sprawdza, czy food truck jest w zasięgu.
+                // ST_DWithin jest niezwykle szybkie dzięki indeksowi GIST.
+                // Mnożymy promień przez 1000, bo funkcja oczekuje dystansu w metrach.
+                whereClauses.push(`
+                    ST_DWithin(
+                        ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
+                        ST_MakePoint($${values.length - 1}, $${values.length})::geography,
+                        p.operation_radius_km * 1000
+                    )
+                `);
+            }
+        } catch (error) {
+            return res.status(400).json({ message: "Nieprawidłowy kod pocztowy." });
+        }
+    }
+
+    // Reszta warunków pozostaje bez zmian, bo dla nich indeksy zadziałają automatycznie
+    if (cuisine) {
+        values.push(cuisine);
+        whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
+    }
+
+    if (event_start_date && event_end_date) {
+        values.push(event_start_date, event_end_date);
+        whereClauses.push(`
+            p.profile_id NOT IN (
+                SELECT profile_id FROM booking_requests 
+                WHERE status = 'confirmed' AND 
+                (event_start_date, event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE)
+            )
+        `);
+    }
+    
+    if (long_term_rental === 'true') {
+        whereClauses.push(`p.long_term_rental_available = TRUE`);
+    }
+
+    // Składamy całe zapytanie
+    query += fromClause;
+    if (whereClauses.length > 0) {
+        query += ' WHERE ' + whereClauses.join(' AND ');
+    }
+    
+    query += ' GROUP BY p.profile_id';
+    
+    if (min_rating && parseFloat(min_rating) > 0) {
+        values.push(parseFloat(min_rating));
+        query += ` HAVING COALESCE(AVG(r.rating), 0) >= $${values.length}`;
+    }
+    
+    if (postal_code) {
+        query += ' ORDER BY distance ASC';
+    }
+
+    try {
+        const profilesResult = await pool.query(query, values);
+        res.json(profilesResult.rows);
+    } catch (error) {
+        console.error('Błąd podczas pobierania wszystkich profili:', error);
+        res.status(500).json({ message: 'Błąd serwera.' });
+    }
+};
+
+
+// ... reszta Twoich funkcji (createProfile, updateProfile, etc.) bez zmian ...
 exports.createProfile = async (req, res) => {
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;
     const ownerId = parseInt(req.user.userId, 10);
@@ -56,7 +144,6 @@ exports.createProfile = async (req, res) => {
     }
 
     try {
-        // ... kod do zapisu profilu w bazie (bez zmian) ...
         let galleryPhotoUrls = [];
         if (req.files && req.files.length > 0) {
             const uploadPromises = req.files.map(uploadFileToGCS);
@@ -75,16 +162,12 @@ exports.createProfile = async (req, res) => {
 
         const newProfileData = newProfile.rows[0];
 
-        // --- ZAKTUALIZOWANY KOD ---
-        // Wysyłamy teraz DWA zlecenia: jedno do tworzenia Rolki, drugie do tworzenia Posta.
         if (newProfileData && newProfileData.gallery_photo_urls && newProfileData.gallery_photo_urls.length > 0) {
             const dataBuffer = Buffer.from(JSON.stringify(newProfileData));
             try {
-                // Zlecenie nr 1: Wygeneruj Rolkę
                 await pubSubClient.topic(reelsTopicName).publishMessage({ data: dataBuffer });
                 console.log(`Wysłano zlecenie WYGENEROWANIA ROLKI dla profilu: ${newProfileData.food_truck_name}`);
 
-                // Zlecenie nr 2: Opublikuj Post
                 await pubSubClient.topic(postsTopicName).publishMessage({ data: dataBuffer });
                 console.log(`Wysłano zlecenie PUBLIKACJI POSTA dla profilu: ${newProfileData.food_truck_name}`);
 
@@ -92,7 +175,6 @@ exports.createProfile = async (req, res) => {
                 console.error(`Nie udało się wysłać zlecenia do Pub/Sub: ${error.message}`);
             }
         }
-        // --- KONIEC ZAKTUALIZOWANEGO KODU ---
 
         res.status(201).json(newProfileData);
 
@@ -102,7 +184,6 @@ exports.createProfile = async (req, res) => {
     }
 };
 
-// ... reszta pliku (updateProfile, getMyProfiles, etc.) bez zmian ...
 exports.updateProfile = async (req, res) => {
     const { profileId: profileIdParam } = req.params;
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;
@@ -147,74 +228,6 @@ exports.getMyProfiles = async (req, res) => {
         res.json(profileResult.rows);
     } catch (error) {
         console.error("Błąd w /api/profiles/my-profiles:", error);
-        res.status(500).json({ message: 'Błąd serwera.' });
-    }
-};
-
-exports.getAllProfiles = async (req, res) => {
-    const { cuisine, postal_code, event_start_date, event_end_date, min_rating, long_term_rental } = req.query;
-
-    let query = `
-        SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
-    `;
-    const values = [];
-    let fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`;
-    const whereClauses = [];
-
-    if (postal_code) {
-        try {
-            const { lat, lon } = await geocode(postal_code);
-            if (lat && lon) {
-                query += `, calculate_distance(p.base_latitude, p.base_longitude, $${values.length + 1}, $${values.length + 2}) as distance`;
-                values.push(lat, lon);
-                whereClauses.push(`calculate_distance(p.base_latitude, p.base_longitude, $1, $2) <= p.operation_radius_km`);
-            }
-        } catch (error) {
-            return res.status(400).json({ message: "Nieprawidłowy kod pocztowy." });
-        }
-    }
-
-    if (cuisine) {
-        values.push(cuisine);
-        whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
-    }
-
-    if (event_start_date && event_end_date) {
-        values.push(event_start_date, event_end_date);
-        whereClauses.push(`
-            p.profile_id NOT IN (
-                SELECT profile_id FROM booking_requests 
-                WHERE status = 'confirmed' AND 
-                (event_start_date, event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE)
-            )
-        `);
-    }
-    
-    if (long_term_rental === 'true') {
-        whereClauses.push(`p.long_term_rental_available = TRUE`);
-    }
-
-    query += fromClause;
-    if (whereClauses.length > 0) {
-        query += ' WHERE ' + whereClauses.join(' AND ');
-    }
-    
-    query += ' GROUP BY p.profile_id';
-    
-    if (min_rating && parseFloat(min_rating) > 0) {
-        values.push(parseFloat(min_rating));
-        query += ` HAVING COALESCE(AVG(r.rating), 0) >= $${values.length}`;
-    }
-    
-    if (postal_code) {
-        query += ' ORDER BY distance ASC';
-    }
-
-    try {
-        const profilesResult = await pool.query(query, values);
-        res.json(profilesResult.rows);
-    } catch (error) {
-        console.error('Błąd podczas pobierania wszystkich profili:', error);
         res.status(500).json({ message: 'Błąd serwera.' });
     }
 };

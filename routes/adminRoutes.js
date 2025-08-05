@@ -5,8 +5,8 @@ const authMiddleware = require('../middleware/authMiddleware');
 const adminMiddleware = require('../middleware/adminMiddleware');
 
 // Używamy middleware do autoryzacji i sprawdzania uprawnień admina dla wszystkich tras w tym pliku
-router.use(authMiddleware);
-router.use(adminMiddleware);
+router.use(authenticateToken);
+router.use(authorizeAdmin);
 
 // Trasy do pobierania danych
 router.get('/stats', adminController.getDashboardStats);
@@ -36,3 +36,4 @@ router.post('/stripe-webhook', express.raw({type: 'application/json'}), adminCon
 router.post('/sync-stripe', adminController.syncAllUsersWithStripe);
 
 module.exports = router;
+

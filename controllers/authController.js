@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
-// Importujemy wszystkie potrzebne funkcje z szablonu e-mail
 const { 
     sendVerificationEmail, 
     sendPasswordResetEmail, 
@@ -19,16 +18,36 @@ const GOOGLE_CLIENT_ID = '1035693089076-606q1auo4o0cb62lmj21djqeqjvor4pj.apps.go
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 exports.register = async (req, res) => {
-    const userData = req.body; // Przechowujemy wszystkie dane w jednej zmiennej
+    const userData = req.body;
     const { 
         email, password, user_type, first_name, last_name, 
         company_name, nip, phone_number, country_code,
         street_address, postal_code, city
     } = userData;
 
+    // --- BLOK WALIDACJI PO STRONIE SERWERA ---
+    // Ten blok jest kluczowy dla bezpieczeństwa i integralności danych.
     if (!email || !password || !user_type) {
         return res.status(400).json({ message: 'Podstawowe pola są wymagane.' });
     }
+    if (password.length < 8) {
+        return res.status(400).json({ message: 'Hasło musi mieć co najmniej 8 znaków.' });
+    }
+    if (user_type === 'food_truck_owner') {
+        if (!company_name || !nip || !phone_number || !street_address || !postal_code || !city) {
+            return res.status(400).json({ message: 'Wszystkie pola firmowe są wymagane dla właściciela food trucka.' });
+        }
+        if (!/^\d{10}$/.test(nip)) {
+            return res.status(400).json({ message: 'NIP musi składać się z 10 cyfr.' });
+        }
+        if (!/^\d{2}-\d{3}$/.test(postal_code)) {
+            return res.status(400).json({ message: 'Nieprawidłowy format kodu pocztowego. Użyj formatu 00-000.' });
+        }
+        if (!/^\d{9,}$/.test(phone_number.replace(/\s/g, ''))) {
+            return res.status(400).json({ message: 'Numer telefonu musi składać się z co najmniej 9 cyfr.' });
+        }
+    }
+    // --- KONIEC BLOKU WALIDACJI ---
 
     const dbClient = await pool.connect();
     try {
@@ -78,16 +97,11 @@ exports.register = async (req, res) => {
         
         await dbClient.query('COMMIT');
         
-        // Po udanym zapisie do bazy, wysyłamy e-maile
         try {
-            // 1. E-mail weryfikacyjny do użytkownika
             await sendVerificationEmail(email, verificationToken);
-
-            // 2. Powiadomienie do CRM
             await sendNewUserAdminNotification(userData);
-
         } catch (emailError) {
-            console.error('Błąd podczas wysyłania e-maili po rejestracji (użytkownik został już zapisany w bazie):', emailError);
+            console.error('Błąd podczas wysyłania e-maili po rejestracji:', emailError);
         }
         
         res.status(201).json({ message: 'Rejestracja pomyślna. Sprawdź swój e-mail, aby aktywować konto.' });
@@ -101,6 +115,7 @@ exports.register = async (req, res) => {
     }
 };
 
+// ... reszta Twoich funkcji (verifyEmail, login, etc.) pozostaje bez zmian ...
 exports.verifyEmail = async (req, res) => {
     const { token } = req.query;
     try {
@@ -202,7 +217,6 @@ exports.googleLogin = async (req, res) => {
             user = newUserQuery.rows[0];
             await sendGoogleWelcomeEmail(email, given_name);
             
-            // Wysyłamy powiadomienie do CRM również dla użytkowników Google
             await sendNewUserAdminNotification({ email, first_name: given_name, last_name: family_name, user_type: 'organizer' });
         }
 
@@ -253,7 +267,7 @@ exports.requestPasswordReset = async (req, res) => {
         
         const user = userResult.rows[0];
         const token = crypto.randomBytes(32).toString('hex');
-        const expires = new Date(Date.now() + 3600000); // Token ważny 1 godzinę
+        const expires = new Date(Date.now() + 3600000);
 
         await pool.query(
             'UPDATE users SET reset_password_token = $1, reset_password_expires = $2 WHERE user_id = $3',
@@ -295,7 +309,6 @@ exports.resetPassword = async (req, res) => {
     }
 };
 
-// Dodałem też endpoint do logowania z przypomnienia, aby plik był kompletny
 exports.loginWithReminderToken = async (req, res) => {
     const { token } = req.body;
     if (!token) {

@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
-const authMiddleware = require('../middleware/authMiddleware');
-const adminMiddleware = require('../middleware/adminMiddleware');
+const authenticateToken = require('../middleware/authenticateToken');
+const authorizeAdmin = require('../middleware/authorizeAdmin');
 
 // Używamy middleware do autoryzacji i sprawdzania uprawnień admina dla wszystkich tras w tym pliku
 router.use(authenticateToken);
@@ -22,7 +22,7 @@ router.put('/users/:userId', adminController.updateUser);
 router.put('/bookings/:requestId/packaging-status', adminController.updatePackagingStatus);
 router.put('/bookings/:requestId/commission-status', adminController.updateCommissionStatus);
 
-// --- KLUCZOWA TRASA: Upewnij się, że ta linia istnieje i jest poprawna ---
+// Kluczowa trasa do aktualizacji szczegółów profilu (w tym promienia)
 router.put('/profiles/:profileId/details', adminController.updateProfileDetails);
 
 // Trasy do usuwania danych
@@ -36,4 +36,3 @@ router.post('/stripe-webhook', express.raw({type: 'application/json'}), adminCon
 router.post('/sync-stripe', adminController.syncAllUsersWithStripe);
 
 module.exports = router;
-

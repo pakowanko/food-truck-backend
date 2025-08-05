@@ -59,8 +59,6 @@ exports.getAllProfiles = async (req, res) => {
         try {
             const { lat, lon } = await geocode(postal_code);
             if (lat && lon) {
-                // --- OSTATECZNA POPRAWKA: Używamy instrukcji CASE, aby bezpiecznie obliczać odległość ---
-                // To gwarantuje, że ST_Distance będzie wywoływane tylko dla wierszy z kompletnymi współrzędnymi.
                 query += `,
                     CASE
                         WHEN p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL THEN
@@ -74,9 +72,12 @@ exports.getAllProfiles = async (req, res) => {
                 `;
                 values.push(lon, lat);
                 
-                // Ten warunek wciąż jest potrzebny do efektywnego filtrowania za pomocą indeksu
+                // --- OSTATECZNA POPRAWKA: Dodajemy warunek sprawdzający, czy promień nie jest NULL ---
+                // To gwarantuje, że ST_DWithin będzie wywoływane tylko dla wierszy z kompletnymi danymi.
                 whereClauses.push(`
-                    p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL AND
+                    p.base_longitude IS NOT NULL AND 
+                    p.base_latitude IS NOT NULL AND
+                    p.operation_radius_km IS NOT NULL AND
                     ST_DWithin(
                         ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
                         ST_MakePoint($${values.length - 1}, $${values.length})::geography,

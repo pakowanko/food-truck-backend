@@ -1,28 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
-const authenticateToken = require('../middleware/authenticateToken');
-const authorizeAdmin = require('../middleware/authorizeAdmin');
+const authMiddleware = require('../middleware/authMiddleware');
+const adminMiddleware = require('../middleware/adminMiddleware');
 
-const isAdmin = [authenticateToken, authorizeAdmin];
+// Używamy middleware do autoryzacji i sprawdzania uprawnień admina dla wszystkich tras w tym pliku
+router.use(authMiddleware);
+router.use(adminMiddleware);
 
-router.get('/stats', isAdmin, adminController.getDashboardStats);
+// Trasy do pobierania danych
+router.get('/stats', adminController.getDashboardStats);
+router.get('/users', adminController.getAllUsers);
+router.get('/bookings', adminController.getAllBookings);
+router.get('/conversations', adminController.getAllConversations);
+router.get('/conversations/:conversationId/messages', adminController.getConversationMessages);
+router.get('/users/:userId/profiles', adminController.getUserProfiles);
 
-router.get('/users', isAdmin, adminController.getAllUsers);
-router.put('/users/:userId/toggle-block', isAdmin, adminController.toggleUserBlock);
-router.put('/users/:userId', isAdmin, adminController.updateUser);
-router.delete('/users/:userId', isAdmin, adminController.deleteUser);
+// Trasy do aktualizacji i modyfikacji danych
+router.put('/users/:userId/toggle-block', adminController.toggleUserBlock);
+router.put('/users/:userId', adminController.updateUser);
+router.put('/bookings/:requestId/packaging-status', adminController.updatePackagingStatus);
+router.put('/bookings/:requestId/commission-status', adminController.updateCommissionStatus);
 
-router.get('/bookings', isAdmin, adminController.getAllBookings);
-router.put('/bookings/:requestId/packaging-status', isAdmin, adminController.updatePackagingStatus);
-router.put('/bookings/:requestId/commission-status', isAdmin, adminController.updateCommissionStatus);
+// --- NOWA TRASA do aktualizacji szczegółów profilu (w tym promienia) ---
+router.put('/profiles/:profileId/details', adminController.updateProfileDetails);
 
-// --- NOWE ŚCIEŻKI ---
-router.get('/conversations', isAdmin, adminController.getAllConversations);
-router.get('/conversations/:conversationId/messages', isAdmin, adminController.getConversationMessages);
+// Trasy do usuwania danych
+router.delete('/users/:userId', adminController.deleteUser);
+router.delete('/profiles/:profileId', adminController.deleteProfile);
 
-// --- NOWE ŚCIEŻKI ---
-router.get('/users/:userId/profiles', isAdmin, adminController.getUserProfiles);
-router.delete('/profiles/:profileId', isAdmin, adminController.deleteProfile);
+// Trasa do webhooka Stripe - powinna być wyłączona z middleware autoryzacji, jeśli jest publiczna
+// W tym przypadku zakładamy, że jest w tym samym pliku i wymaga uprawnień admina do podglądu
+// UWAGA: W produkcji webhook Stripe powinien być publicznym endpointem bez authMiddleware!
+router.post('/stripe-webhook', express.raw({type: 'application/json'}), adminController.handleStripeWebhook);
+
+// Trasa do jednorazowej synchronizacji
+router.post('/sync-stripe', adminController.syncAllUsersWithStripe);
 
 module.exports = router;

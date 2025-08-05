@@ -214,13 +214,39 @@ exports.getConversationMessages = async (req, res) => {
     }
 };
 
+// --- ZMIANA: Teraz pobieramy też promień działania ---
 exports.getUserProfiles = async (req, res) => {
     const { userId } = req.params;
     try {
-        const result = await pool.query('SELECT * FROM food_truck_profiles WHERE owner_id = $1 ORDER BY food_truck_name', [userId]);
+        const result = await pool.query('SELECT profile_id, food_truck_name, operation_radius_km FROM food_truck_profiles WHERE owner_id = $1 ORDER BY food_truck_name', [userId]);
         res.json(result.rows);
     } catch (error) {
         console.error("Błąd pobierania profili użytkownika (admin):", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+// --- NOWA FUNKCJA: Aktualizacja szczegółów profilu (w tym promienia) ---
+exports.updateProfileDetails = async (req, res) => {
+    const { profileId } = req.params;
+    const { operation_radius_km } = req.body;
+
+    const radius = parseInt(operation_radius_km, 10);
+    if (isNaN(radius) || radius <= 0) {
+        return res.status(400).json({ message: "Promień działania musi być liczbą większą od zera." });
+    }
+
+    try {
+        const result = await pool.query(
+            'UPDATE food_truck_profiles SET operation_radius_km = $1 WHERE profile_id = $2 RETURNING *',
+            [radius, profileId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono profilu.' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("Błąd aktualizacji profilu przez admina:", error);
         res.status(500).json({ message: "Błąd serwera." });
     }
 };
@@ -250,7 +276,7 @@ exports.deleteProfile = async (req, res) => {
         client.release();
     }
 };
-// Ta funkcja zastępuje poprzednią wersję handleStripeWebhook
+
 exports.handleStripeWebhook = async (req, res) => {
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!endpointSecret) {
@@ -270,18 +296,12 @@ exports.handleStripeWebhook = async (req, res) => {
 
     console.log(`✅ Otrzymano zdarzenie Stripe: ${event.type}`);
     
-    // Obsługa zdarzenia opłaconej faktury
     if (event.type === 'invoice.paid') {
         const invoice = event.data.object;
         console.log(`Faktura ${invoice.id} została opłacona.`);
-
-        // --- POCZĄTEK NOWEJ LOGIKI ---
-
-        // Pobierz pierwszą pozycję z faktury, aby znaleźć ID rezerwacji w opisie
         const lineItem = invoice.lines.data[0];
         
         if (lineItem && lineItem.description) {
-            // Wyciągnij numer ID z opisu "Prowizja za rezerwację #123"
             const match = lineItem.description.match(/#(\d+)/);
             
             if (match && match[1]) {
@@ -289,7 +309,6 @@ exports.handleStripeWebhook = async (req, res) => {
                 console.log(`Znaleziono ID rezerwacji: ${requestId}. Aktualizowanie bazy danych...`);
                 
                 try {
-                    // Zaktualizuj flagę commission_paid w tabeli booking_requests
                     const result = await pool.query(
                         'UPDATE booking_requests SET commission_paid = TRUE WHERE request_id = $1',
                         [requestId]
@@ -310,21 +329,14 @@ exports.handleStripeWebhook = async (req, res) => {
         } else {
             console.error('⚠️ Faktura nie zawiera pozycji z opisem. Nie można zaktualizować statusu prowizji.');
         }
-        // --- KONIEC NOWEJ LOGIKI ---
     }
-
-    // Możesz tu dodać obsługę innych eventów, np. 'invoice.payment_failed'
-
-    // Zwróć odpowiedź 200, aby potwierdzić otrzymanie zdarzenia
     res.json({ received: true });
 };
 
-// Tę funkcję dodaj na końcu pliku adminController.js
 exports.syncAllUsersWithStripe = async (req, res) => {
     console.log('[SYNC] Rozpoczynam jednorazową synchronizację użytkowników ze Stripe...');
     
     try {
-        // 1. Pobierz wszystkich właścicieli food trucków, którzy mają Stripe ID
         const { rows: users } = await pool.query(
             `SELECT user_id, email, company_name, nip, phone_number, street_address, postal_code, city, country_code, stripe_customer_id 
              FROM users 
@@ -340,10 +352,8 @@ exports.syncAllUsersWithStripe = async (req, res) => {
         let successCount = 0;
         let errorCount = 0;
 
-        // 2. Przejdź pętlą przez każdego użytkownika
         for (const user of users) {
             try {
-                // 3. Zaktualizuj dane w Stripe
                 await stripe.customers.update(user.stripe_customer_id, {
                     name: user.company_name,
                     email: user.email,

@@ -3,7 +3,6 @@ const axios = require('axios');
 const { Storage } = require('@google-cloud/storage');
 const { PubSub } = require('@google-cloud/pubsub');
 
-// ... reszta Twoich importów i funkcji pomocniczych (geocode, etc.) bez zmian ...
 const pubSubClient = new PubSub();
 const reelsTopicName = 'reels-generation-topic';
 const postsTopicName = 'post-publication-topic';
@@ -45,12 +44,10 @@ async function geocode(locationString) {
     }
 }
 
-
-// --- ZOPTYMALIZOWANA FUNKCJA WYSZUKIWANIA ---
+// --- ZAKTUALIZOWANA I ZOPTYMALIZOWANA FUNKCJA WYSZUKIWANIA ---
 exports.getAllProfiles = async (req, res) => {
     const { cuisine, postal_code, event_start_date, event_end_date, min_rating, long_term_rental } = req.query;
 
-    // Zaczynamy budować zapytanie
     let query = `
         SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
     `;
@@ -58,21 +55,16 @@ exports.getAllProfiles = async (req, res) => {
     let fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`;
     const whereClauses = [];
 
-    // --- KLUCZOWA ZMIANA: Używamy teraz funkcji PostGIS, które wykorzystają nasz nowy indeks ---
     if (postal_code) {
         try {
             const { lat, lon } = await geocode(postal_code);
             if (lat && lon) {
-                // Dodajemy do SELECT obliczanie dystansu w kilometrach
+                // Używamy funkcji PostGIS, które wykorzystają nasz nowy indeks
                 query += `, ST_Distance(
                     ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
                     ST_MakePoint($${values.length + 1}, $${values.length + 2})::geography
                 ) / 1000 as distance`;
-                values.push(lon, lat); // Ważna kolejność: najpierw długość (lon), potem szerokość (lat)
-
-                // Dodajemy do WHERE warunek, który sprawdza, czy food truck jest w zasięgu.
-                // ST_DWithin jest niezwykle szybkie dzięki indeksowi GIST.
-                // Mnożymy promień przez 1000, bo funkcja oczekuje dystansu w metrach.
+                values.push(lon, lat);
                 whereClauses.push(`
                     ST_DWithin(
                         ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
@@ -86,19 +78,21 @@ exports.getAllProfiles = async (req, res) => {
         }
     }
 
-    // Reszta warunków pozostaje bez zmian, bo dla nich indeksy zadziałają automatycznie
     if (cuisine) {
         values.push(cuisine);
         whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
     }
 
+    // --- POPRAWKA BŁĘDU 500 ---
     if (event_start_date && event_end_date) {
         values.push(event_start_date, event_end_date);
+        // Dodaliśmy alias 'br' do tabeli w podzapytaniu, aby jednoznacznie
+        // wskazać kolumny i uniknąć błędu niejednoznaczności.
         whereClauses.push(`
             p.profile_id NOT IN (
-                SELECT profile_id FROM booking_requests 
-                WHERE status = 'confirmed' AND 
-                (event_start_date, event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE)
+                SELECT br.profile_id FROM booking_requests br 
+                WHERE br.status = 'confirmed' AND 
+                (br.event_start_date, br.event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE)
             )
         `);
     }
@@ -107,7 +101,6 @@ exports.getAllProfiles = async (req, res) => {
         whereClauses.push(`p.long_term_rental_available = TRUE`);
     }
 
-    // Składamy całe zapytanie
     query += fromClause;
     if (whereClauses.length > 0) {
         query += ' WHERE ' + whereClauses.join(' AND ');
@@ -133,8 +126,6 @@ exports.getAllProfiles = async (req, res) => {
     }
 };
 
-
-// ... reszta Twoich funkcji (createProfile, updateProfile, etc.) bez zmian ...
 exports.createProfile = async (req, res) => {
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;
     const ownerId = parseInt(req.user.userId, 10);

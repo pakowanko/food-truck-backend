@@ -59,16 +59,24 @@ exports.getAllProfiles = async (req, res) => {
         try {
             const { lat, lon } = await geocode(postal_code);
             if (lat && lon) {
-                // --- NOWA POPRAWKA: Dodajemy warunek, aby pominąć profile bez współrzędnych ---
-                // To zapobiega błędom w funkcjach PostGIS, gdy dane są niekompletne.
-                whereClauses.push('p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL');
-
-                query += `, ST_Distance(
-                    ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
-                    ST_MakePoint($${values.length + 1}, $${values.length + 2})::geography
-                ) / 1000 as distance`;
+                // --- OSTATECZNA POPRAWKA: Używamy instrukcji CASE, aby bezpiecznie obliczać odległość ---
+                // To gwarantuje, że ST_Distance będzie wywoływane tylko dla wierszy z kompletnymi współrzędnymi.
+                query += `,
+                    CASE
+                        WHEN p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL THEN
+                            ST_Distance(
+                                ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
+                                ST_MakePoint($${values.length + 1}, $${values.length + 2})::geography
+                            ) / 1000
+                        ELSE
+                            NULL
+                    END as distance
+                `;
                 values.push(lon, lat);
+                
+                // Ten warunek wciąż jest potrzebny do efektywnego filtrowania za pomocą indeksu
                 whereClauses.push(`
+                    p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL AND
                     ST_DWithin(
                         ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
                         ST_MakePoint($${values.length - 1}, $${values.length})::geography,
@@ -240,4 +248,3 @@ exports.getProfileById = async (req, res) => {
     res.status(500).json({ message: 'Błąd serwera.' });
   }
 };
-

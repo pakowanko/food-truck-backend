@@ -59,7 +59,10 @@ exports.getAllProfiles = async (req, res) => {
         try {
             const { lat, lon } = await geocode(postal_code);
             if (lat && lon) {
-                // Używamy funkcji PostGIS, które wykorzystają nasz nowy indeks
+                // --- NOWA POPRAWKA: Dodajemy warunek, aby pominąć profile bez współrzędnych ---
+                // To zapobiega błędom w funkcjach PostGIS, gdy dane są niekompletne.
+                whereClauses.push('p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL');
+
                 query += `, ST_Distance(
                     ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
                     ST_MakePoint($${values.length + 1}, $${values.length + 2})::geography
@@ -83,11 +86,8 @@ exports.getAllProfiles = async (req, res) => {
         whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
     }
 
-    // --- POPRAWKA BŁĘDU 500 ---
     if (event_start_date && event_end_date) {
         values.push(event_start_date, event_end_date);
-        // Dodaliśmy alias 'br' do tabeli w podzapytaniu, aby jednoznacznie
-        // wskazać kolumny i uniknąć błędu niejednoznaczności.
         whereClauses.push(`
             p.profile_id NOT IN (
                 SELECT br.profile_id FROM booking_requests br 

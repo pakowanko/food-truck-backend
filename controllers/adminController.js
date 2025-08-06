@@ -24,13 +24,14 @@ exports.getDashboardStats = async (req, res) => {
     }
 };
 
+// --- ZMIANA: Dodajemy 'phone_number' do pobieranych danych ---
 exports.getAllUsers = async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT 
                 u.user_id, u.email, u.user_type, u.first_name, u.last_name, 
                 u.company_name, u.nip, u.street_address, u.postal_code, u.city, 
-                u.is_blocked, u.role, COUNT(p.profile_id) as profile_count
+                u.phone_number, u.is_blocked, u.role, COUNT(p.profile_id) as profile_count
             FROM users u
             LEFT JOIN food_truck_profiles p ON u.user_id = p.owner_id
             GROUP BY u.user_id
@@ -77,9 +78,10 @@ exports.toggleUserBlock = async (req, res) => {
     }
 };
 
+// --- ZMIANA: Dodajemy 'phone_number' do aktualizowanych danych ---
 exports.updateUser = async (req, res) => {
     const { userId } = req.params;
-    const { company_name, nip, street_address, postal_code, city, user_type } = req.body;
+    const { company_name, nip, street_address, postal_code, city, user_type, phone_number } = req.body;
 
     try {
         const result = await pool.query(
@@ -89,9 +91,10 @@ exports.updateUser = async (req, res) => {
                 street_address = $3, 
                 postal_code = $4, 
                 city = $5,
-                user_type = $6
-             WHERE user_id = $7 RETURNING *`,
-            [company_name, nip, street_address, postal_code, city, user_type, userId]
+                user_type = $6,
+                phone_number = $7
+             WHERE user_id = $8 RETURNING *`,
+            [company_name, nip, street_address, postal_code, city, user_type, phone_number, userId]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Nie znaleziono użytkownika.' });

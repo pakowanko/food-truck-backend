@@ -22,7 +22,7 @@ router.put('/users/:userId', adminController.updateUser);
 router.put('/bookings/:requestId/packaging-status', adminController.updatePackagingStatus);
 router.put('/bookings/:requestId/commission-status', adminController.updateCommissionStatus);
 
-// Kluczowa trasa do aktualizacji szczegółów profilu (w tym promienia)
+// --- NOWA TRASA do aktualizacji szczegółów profilu (w tym promienia) ---
 router.put('/profiles/:profileId/details', adminController.updateProfileDetails);
 
 // Trasy do usuwania danych

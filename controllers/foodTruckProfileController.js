@@ -60,18 +60,16 @@ exports.getAllProfiles = async (req, res) => {
             const { lat, lon } = await geocode(postal_code);
             if (lat && lon) {
                 // --- OSTATECZNA POPRAWKA: Poprawiamy logikę placeholderów ---
-                // 1. Najpierw dodajemy wartości do tablicy.
-                values.push(lon, lat);
-                // 2. Pobieramy ich indeksy (pamiętając, że placeholdery są 1-based).
-                const lonIndex = values.length - 1;
-                const latIndex = values.length;
+                // Używamy zwrotnej wartości z .push(), która daje nam poprawny, 1-based indeks dla placeholdera SQL.
+                const lonPlaceholder = values.push(lon);
+                const latPlaceholder = values.push(lat);
 
                 query += `,
                     CASE
                         WHEN p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL THEN
                             ST_Distance(
                                 ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
-                                ST_MakePoint($${lonIndex}, $${latIndex})::geography
+                                ST_MakePoint($${lonPlaceholder}, $${latPlaceholder})::geography
                             ) / 1000
                         ELSE
                             NULL
@@ -84,7 +82,7 @@ exports.getAllProfiles = async (req, res) => {
                     p.operation_radius_km IS NOT NULL AND
                     ST_DWithin(
                         ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
-                        ST_MakePoint($${lonIndex}, $${latIndex})::geography,
+                        ST_MakePoint($${lonPlaceholder}, $${latPlaceholder})::geography,
                         p.operation_radius_km * 1000
                     )
                 `);
@@ -130,10 +128,10 @@ exports.getAllProfiles = async (req, res) => {
         query += ' ORDER BY distance ASC';
     }
 
-    // --- NOWOŚĆ: Dodajemy szczegółowe logowanie ---
+    // --- SZCZEGÓŁOWE LOGOWANIE ---
     try {
         console.log('--- DEBUG: Wykonywanie zapytania SQL ---');
-        console.log('QUERY:', query.replace(/\s+/g, ' ').trim()); // Logujemy zapytanie w jednej linii dla czytelności
+        console.log('QUERY:', query.replace(/\s+/g, ' ').trim());
         console.log('VALUES:', values);
         
         const profilesResult = await pool.query(query, values);
@@ -142,14 +140,12 @@ exports.getAllProfiles = async (req, res) => {
         res.json(profilesResult.rows);
     } catch (error) {
         console.error('--- KRYTYCZNY BŁĄD PODCZAS WYKONYWANIA ZAPYTANIA ---');
-        // Logujemy szczegóły błędu z bazy danych
         console.error('BŁĄD:', {
             message: error.message,
             code: error.code,
             detail: error.detail,
             routine: error.routine,
         });
-        // Logujemy również zapytanie, które spowodowało błąd
         console.error('GENEROWANE ZAPYTANIE:', query.replace(/\s+/g, ' ').trim());
         console.error('UŻYTE WARTOŚCI:', values);
         res.status(500).json({ message: 'Błąd serwera podczas wyszukiwania profili.' });

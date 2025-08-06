@@ -1,5 +1,9 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { Storage } = require('@google-cloud/storage');
+
+const storage = new Storage();
+const bucketName = process.env.GCS_BUCKET_NAME;
 
 exports.getDashboardStats = async (req, res) => {
     try {
@@ -214,7 +218,6 @@ exports.getConversationMessages = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Teraz pobieramy też promień działania ---
 exports.getUserProfiles = async (req, res) => {
     const { userId } = req.params;
     try {
@@ -226,20 +229,45 @@ exports.getUserProfiles = async (req, res) => {
     }
 };
 
-// --- NOWA FUNKCJA: Aktualizacja szczegółów profilu (w tym promienia) ---
+exports.getProfileForAdmin = async (req, res) => {
+    const { profileId } = req.params;
+    const parsedProfileId = parseInt(profileId, 10);
+    if (isNaN(parsedProfileId)) {
+        return res.status(400).json({ message: 'Nieprawidłowe ID profilu.' });
+    }
+    try {
+        const result = await pool.query('SELECT * FROM food_truck_profiles WHERE profile_id = $1', [parsedProfileId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono profilu.' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error(`Błąd podczas pobierania profilu o ID ${parsedProfileId}:`, error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
 exports.updateProfileDetails = async (req, res) => {
     const { profileId } = req.params;
-    const { operation_radius_km } = req.body;
+    const { operation_radius_km, food_truck_description, base_location } = req.body;
 
     const radius = parseInt(operation_radius_km, 10);
     if (isNaN(radius) || radius <= 0) {
         return res.status(400).json({ message: "Promień działania musi być liczbą większą od zera." });
     }
+    if (!food_truck_description || food_truck_description.trim() === '') {
+        return res.status(400).json({ message: "Opis nie może być pusty." });
+    }
+    if (!base_location || base_location.trim() === '') {
+        return res.status(400).json({ message: "Miasto / lokalizacja bazowa nie może być pusta." });
+    }
 
     try {
         const result = await pool.query(
-            'UPDATE food_truck_profiles SET operation_radius_km = $1 WHERE profile_id = $2 RETURNING *',
-            [radius, profileId]
+            `UPDATE food_truck_profiles 
+             SET operation_radius_km = $1, food_truck_description = $2, base_location = $3 
+             WHERE profile_id = $4 RETURNING *`,
+            [radius, food_truck_description, base_location, profileId]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Nie znaleziono profilu.' });
@@ -247,6 +275,52 @@ exports.updateProfileDetails = async (req, res) => {
         res.json(result.rows[0]);
     } catch (error) {
         console.error("Błąd aktualizacji profilu przez admina:", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+exports.deleteProfilePhoto = async (req, res) => {
+    const { profileId } = req.params;
+    const { photoUrl } = req.body;
+
+    if (!photoUrl) {
+        return res.status(400).json({ message: 'Nie podano adresu URL zdjęcia.' });
+    }
+
+    try {
+        const updateResult = await pool.query(
+            `UPDATE food_truck_profiles 
+             SET gallery_photo_urls = array_remove(gallery_photo_urls, $1) 
+             WHERE profile_id = $2 RETURNING gallery_photo_urls, profile_image_url`,
+            [photoUrl, profileId]
+        );
+        
+        if (updateResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono profilu.' });
+        }
+
+        let profile = updateResult.rows[0];
+        if (profile.profile_image_url === photoUrl) {
+            const newProfileImageUrl = profile.gallery_photo_urls.length > 0 ? profile.gallery_photo_urls[0] : null;
+            await pool.query(
+                'UPDATE food_truck_profiles SET profile_image_url = $1 WHERE profile_id = $2',
+                [newProfileImageUrl, profileId]
+            );
+        }
+
+        try {
+            const fileName = photoUrl.split(`/${bucketName}/`)[1];
+            if (fileName) {
+                await storage.bucket(bucketName).file(decodeURIComponent(fileName)).delete();
+                console.log(`Pomyślnie usunięto plik ${fileName} z GCS.`);
+            }
+        } catch (gcsError) {
+            console.error('Błąd podczas usuwania pliku z GCS:', gcsError.message);
+        }
+
+        res.status(200).json({ message: 'Zdjęcie zostało usunięte.' });
+    } catch (error) {
+        console.error("Błąd podczas usuwania zdjęcia:", error);
         res.status(500).json({ message: "Błąd serwera." });
     }
 };

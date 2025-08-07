@@ -1,9 +1,32 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { Storage } = require('@google-cloud/storage');
+// --- NOWA LOGIKA: Potrzebujemy geocode tak jak w głównym kontrolerze profili ---
+const axios = require('axios');
 
 const storage = new Storage();
 const bucketName = process.env.GCS_BUCKET_NAME;
+
+// --- NOWA LOGIKA: Funkcja pomocnicza do geokodowania ---
+async function geocode(locationString) {
+    if (!locationString) return { lat: null, lon: null };
+    const apiKey = process.env.GEOCODING_API_KEY;
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(locationString)}&components=country:PL&key=${apiKey}`;
+    try {
+        const response = await axios.get(url);
+        if (response.data.status === 'OK' && response.data.results.length > 0) {
+            const location = response.data.results[0].geometry.location;
+            return { lat: location.lat, lon: location.lng };
+        } else {
+            return { lat: null, lon: null };
+        }
+    } catch (error) {
+        console.error('Błąd Geocoding API w adminController:', error.message);
+        // Zwracamy null, aby nie przerywać operacji admina, ale logujemy błąd
+        return { lat: null, lon: null };
+    }
+}
+
 
 exports.getDashboardStats = async (req, res) => {
     try {
@@ -24,7 +47,6 @@ exports.getDashboardStats = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Dodajemy 'phone_number' do pobieranych danych ---
 exports.getAllUsers = async (req, res) => {
     try {
         const result = await pool.query(`
@@ -44,6 +66,50 @@ exports.getAllUsers = async (req, res) => {
     }
 };
 
+exports.updateProfileDetails = async (req, res) => {
+    const { profileId } = req.params;
+    const { operation_radius_km, food_truck_description, base_location } = req.body;
+
+    const radius = parseInt(operation_radius_km, 10);
+    if (isNaN(radius) || radius <= 0) {
+        return res.status(400).json({ message: "Promień działania musi być liczbą większą od zera." });
+    }
+    if (!food_truck_description || food_truck_description.trim() === '') {
+        return res.status(400).json({ message: "Opis nie może być pusty." });
+    }
+    if (!base_location || base_location.trim() === '') {
+        return res.status(400).json({ message: "Miasto / lokalizacja bazowa nie może być pusta." });
+    }
+
+    try {
+        // --- NOWA LOGIKA: Geokodujemy nową lokalizację, aby zaktualizować kolumnę `location` ---
+        const { lat, lon } = await geocode(base_location);
+
+        const result = await pool.query(
+            `UPDATE food_truck_profiles 
+             SET operation_radius_km = $1, 
+                 food_truck_description = $2, 
+                 base_location = $3,
+                 base_latitude = $4,
+                 base_longitude = $5,
+                 location = ST_MakePoint($5, $4)::geography
+             WHERE profile_id = $6 RETURNING *`,
+            [radius, food_truck_description, base_location, lat, lon, profileId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono profilu.' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("Błąd aktualizacji profilu przez admina:", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};
+
+
+// --- Reszta pliku bez żadnych zmian ---
+// (Wklejam dla kompletności, możesz skopiować od tego miejsca w dół ze swojego oryginalnego pliku)
+// ...
 exports.getAllBookings = async (req, res) => {
     try {
         const result = await pool.query(
@@ -78,7 +144,6 @@ exports.toggleUserBlock = async (req, res) => {
     }
 };
 
-// --- ZMIANA: Dodajemy 'phone_number' do aktualizowanych danych ---
 exports.updateUser = async (req, res) => {
     const { userId } = req.params;
     const { company_name, nip, street_address, postal_code, city, user_type, phone_number } = req.body;
@@ -246,38 +311,6 @@ exports.getProfileForAdmin = async (req, res) => {
         res.json(result.rows[0]);
     } catch (error) {
         console.error(`Błąd podczas pobierania profilu o ID ${parsedProfileId}:`, error);
-        res.status(500).json({ message: "Błąd serwera." });
-    }
-};
-
-exports.updateProfileDetails = async (req, res) => {
-    const { profileId } = req.params;
-    const { operation_radius_km, food_truck_description, base_location } = req.body;
-
-    const radius = parseInt(operation_radius_km, 10);
-    if (isNaN(radius) || radius <= 0) {
-        return res.status(400).json({ message: "Promień działania musi być liczbą większą od zera." });
-    }
-    if (!food_truck_description || food_truck_description.trim() === '') {
-        return res.status(400).json({ message: "Opis nie może być pusty." });
-    }
-    if (!base_location || base_location.trim() === '') {
-        return res.status(400).json({ message: "Miasto / lokalizacja bazowa nie może być pusta." });
-    }
-
-    try {
-        const result = await pool.query(
-            `UPDATE food_truck_profiles 
-             SET operation_radius_km = $1, food_truck_description = $2, base_location = $3 
-             WHERE profile_id = $4 RETURNING *`,
-            [radius, food_truck_description, base_location, profileId]
-        );
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'Nie znaleziono profilu.' });
-        }
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error("Błąd aktualizacji profilu przez admina:", error);
         res.status(500).json({ message: "Błąd serwera." });
     }
 };

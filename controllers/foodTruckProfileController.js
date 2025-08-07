@@ -44,48 +44,48 @@ async function geocode(locationString) {
     }
 }
 
-// --- ZAKTUALIZOWANA I ZOPTYMALIZOWANA FUNKCJA WYSZUKIWANIA ---
+// --- GŁÓWNA ZMIANA: CAŁKOWICIE NOWA, ZOPTYMALIZOWANA FUNKCJA WYSZUKIWANIA ---
 exports.getAllProfiles = async (req, res) => {
     const { cuisine, postal_code, event_start_date, event_end_date, min_rating, long_term_rental } = req.query;
 
+    // --- ZMIANA: Jawnie zdefiniowane kolumny. Nigdy więcej SELECT * ---
     let query = `
-        SELECT p.*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count
+        SELECT 
+            p.profile_id,
+            p.food_truck_name,
+            p.food_truck_description,
+            p.base_location,
+            p.operation_radius_km,
+            p.gallery_photo_urls,
+            p.profile_image_url,
+            p.offer,
+            p.long_term_rental_available,
+            COALESCE(AVG(r.rating), 0) as average_rating, 
+            COUNT(r.review_id) as review_count
     `;
     const values = [];
-    let fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`;
+    const fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`;
     const whereClauses = [];
+    let orderByClause = 'ORDER BY p.food_truck_name ASC'; // Domyślne sortowanie
 
     if (postal_code) {
         try {
             const { lat, lon } = await geocode(postal_code);
             if (lat && lon) {
-                // --- OSTATECZNA POPRAWKA: Poprawiamy logikę placeholderów ---
-                // Używamy zwrotnej wartości z .push(), która daje nam poprawny, 1-based indeks dla placeholdera SQL.
                 const lonPlaceholder = values.push(lon);
                 const latPlaceholder = values.push(lat);
+                const locationPoint = `ST_MakePoint($${lonPlaceholder}, $${latPlaceholder})::geography`;
 
-                query += `,
-                    CASE
-                        WHEN p.base_longitude IS NOT NULL AND p.base_latitude IS NOT NULL THEN
-                            ST_Distance(
-                                ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
-                                ST_MakePoint($${lonPlaceholder}, $${latPlaceholder})::geography
-                            ) / 1000
-                        ELSE
-                            NULL
-                    END as distance
-                `;
+                // --- ZMIANA: Obliczanie dystansu na podstawie zoptymalizowanej kolumny `location` ---
+                query += `, ST_Distance(p.location, ${locationPoint}) / 1000 as distance`;
                 
+                // --- ZMIANA: Użycie ST_DWithin z indeksem GiST. To jest klucz do wydajności. ---
                 whereClauses.push(`
-                    p.base_longitude IS NOT NULL AND 
-                    p.base_latitude IS NOT NULL AND
+                    p.location IS NOT NULL AND
                     p.operation_radius_km IS NOT NULL AND
-                    ST_DWithin(
-                        ST_MakePoint(p.base_longitude, p.base_latitude)::geography,
-                        ST_MakePoint($${lonPlaceholder}, $${latPlaceholder})::geography,
-                        p.operation_radius_km * 1000
-                    )
+                    ST_DWithin(p.location, ${locationPoint}, p.operation_radius_km * 1000)
                 `);
+                orderByClause = 'ORDER BY distance ASC';
             }
         } catch (error) {
             return res.status(400).json({ message: "Nieprawidłowy kod pocztowy." });
@@ -117,6 +117,7 @@ exports.getAllProfiles = async (req, res) => {
         query += ' WHERE ' + whereClauses.join(' AND ');
     }
     
+    // --- ZMIANA: Grupujemy po kluczu głównym, co jest najwydajniejsze ---
     query += ' GROUP BY p.profile_id';
     
     if (min_rating && parseFloat(min_rating) > 0) {
@@ -124,30 +125,13 @@ exports.getAllProfiles = async (req, res) => {
         query += ` HAVING COALESCE(AVG(r.rating), 0) >= $${values.length}`;
     }
     
-    if (postal_code) {
-        query += ' ORDER BY distance ASC';
-    }
+    query += ` ${orderByClause}`;
 
-    // --- SZCZEGÓŁOWE LOGOWANIE ---
     try {
-        console.log('--- DEBUG: Wykonywanie zapytania SQL ---');
-        console.log('QUERY:', query.replace(/\s+/g, ' ').trim());
-        console.log('VALUES:', values);
-        
         const profilesResult = await pool.query(query, values);
-
-        console.log(`--- DEBUG: Zapytanie wykonane pomyślnie. Zwrócono ${profilesResult.rowCount} wierszy. ---`);
         res.json(profilesResult.rows);
     } catch (error) {
-        console.error('--- KRYTYCZNY BŁĄD PODCZAS WYKONYWANIA ZAPYTANIA ---');
-        console.error('BŁĄD:', {
-            message: error.message,
-            code: error.code,
-            detail: error.detail,
-            routine: error.routine,
-        });
-        console.error('GENEROWANE ZAPYTANIE:', query.replace(/\s+/g, ' ').trim());
-        console.error('UŻYTE WARTOŚCI:', values);
+        console.error('BŁĄD ZAPYTANIA W getAllProfiles:', error);
         res.status(500).json({ message: 'Błąd serwera podczas wyszukiwania profili.' });
     }
 };
@@ -172,8 +156,9 @@ exports.createProfile = async (req, res) => {
 
         const { lat, lon } = await geocode(base_location);
         
+        // --- ZMIANA: Dodajemy zapis do nowej kolumny `location` ---
         const newProfile = await pool.query(
-            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, gallery_photo_urls, profile_image_url, offer, long_term_rental_available) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, gallery_photo_urls, profile_image_url, offer, long_term_rental_available, location) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, ST_MakePoint($7, $6)::geography) RETURNING *`,
             [ownerId, food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm]
         );
 
@@ -224,8 +209,9 @@ exports.updateProfile = async (req, res) => {
 
         const { lat, lon } = await geocode(base_location);
 
+        // --- ZMIANA: Aktualizujemy także kolumnę `location` ---
         const updatedProfile = await pool.query(
-            `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, gallery_photo_urls = $7, profile_image_url = $8, offer = $9, long_term_rental_available = $10 WHERE profile_id = $11 RETURNING *`,
+            `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, gallery_photo_urls = $7, profile_image_url = $8, offer = $9, long_term_rental_available = $10, location = ST_MakePoint($6, $5)::geography WHERE profile_id = $11 RETURNING *`,
             [food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm, profileId]
         );
         res.json(updatedProfile.rows[0]);
@@ -235,6 +221,7 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
+// --- Reszta funkcji bez zmian ---
 exports.getMyProfiles = async (req, res) => {
     const { userId } = req.user;
     if (!userId) {

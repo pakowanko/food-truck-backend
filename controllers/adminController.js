@@ -70,6 +70,11 @@ exports.updateProfileDetails = async (req, res) => {
     const { profileId } = req.params;
     const { operation_radius_km, food_truck_description, base_location } = req.body;
 
+    const parsedProfileId = parseInt(profileId, 10);
+    if (isNaN(parsedProfileId)) {
+        return res.status(400).json({ message: 'Nieprawidłowe ID profilu.' });
+    }
+
     const radius = parseInt(operation_radius_km, 10);
     if (isNaN(radius) || radius <= 0) {
         return res.status(400).json({ message: "Promień działania musi być liczbą większą od zera." });
@@ -82,20 +87,31 @@ exports.updateProfileDetails = async (req, res) => {
     }
 
     try {
-        // --- NOWA LOGIKA: Geokodujemy nową lokalizację, aby zaktualizować kolumnę `location` ---
         const { lat, lon } = await geocode(base_location);
 
+        // <<< FINALNA ZMIANA: Używamy 8 parametrów zamiast 6, aby uniknąć konfliktu typów.
         const result = await pool.query(
             `UPDATE food_truck_profiles 
              SET operation_radius_km = $1, 
                  food_truck_description = $2, 
                  base_location = $3,
-                 base_latitude = $4,
+                 base_latitude = $4,  -- Używa pierwszego zestawu lat/lon
                  base_longitude = $5,
-                 location = ST_MakePoint($5, $4)::geography
-             WHERE profile_id = $6 RETURNING *`,
-            [radius, food_truck_description, base_location, lat, lon, profileId]
+                 location = ST_MakePoint($7, $6)::geography -- Używa drugiego zestawu lat/lon
+             WHERE profile_id = $8 RETURNING *`,
+            // <<< FINALNA ZMIANA: Przekazujemy lat i lon dwa razy w tablicy.
+            [
+                radius, 
+                food_truck_description, 
+                base_location, 
+                lat,  // Parametr $4
+                lon,  // Parametr $5
+                lat,  // Parametr $6
+                lon,  // Parametr $7
+                parsedProfileId // Parametr $8
+            ]
         );
+        
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Nie znaleziono profilu.' });
         }

@@ -509,3 +509,36 @@ exports.syncAllUsersWithStripe = async (req, res) => {
         res.status(500).send('Wystąpił krytyczny błąd serwera.');
     }
 };
+
+// NOWA FUNKCJA DO POBIERANIA SZCZEGÓŁÓW JEDNEJ REZERWACJI
+exports.getBookingById = async (req, res) => {
+    const { requestId } = req.params;
+    try {
+        const result = await pool.query(
+            `SELECT 
+                br.*, 
+                ftp.food_truck_name,
+                u_owner.email as owner_email,
+                u_owner.phone_number as owner_phone,
+                u_organizer.first_name as organizer_first_name,
+                u_organizer.last_name as organizer_last_name,
+                u_organizer.email as organizer_email,
+                u_organizer.phone_number as organizer_phone
+             FROM booking_requests br
+             JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id
+             JOIN users u_owner ON ftp.owner_id = u_owner.user_id
+             JOIN users u_organizer ON br.organizer_id = u_organizer.user_id
+             WHERE br.request_id = $1`,
+            [requestId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Nie znaleziono rezerwacji o podanym ID.' });
+        }
+        res.json(result.rows[0]);
+
+    } catch (error) {
+        console.error("Błąd pobierania szczegółów rezerwacji (admin):", error);
+        res.status(500).json({ message: "Błąd serwera." });
+    }
+};

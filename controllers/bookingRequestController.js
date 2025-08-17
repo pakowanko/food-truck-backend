@@ -2,12 +2,11 @@ const pool = require('../db');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createBrandedEmail, sendPackagingReminderEmail } = require('../utils/emailTemplate');
-// <<< 1. NOWY IMPORT NASZEJ LOGIKI SUGESTII
 const { findAndSuggestAlternatives } = require('../utils/suggestionUtils');
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Tworzenie nowej rezerwacji (bez zmian)
+// Tworzenie nowej rezerwacji
 exports.createBookingRequest = async (req, res) => {
     console.log('[Controller: createBookingRequest] Uruchomiono tworzenie rezerwacji.');
     const { 
@@ -43,6 +42,11 @@ exports.createBookingRequest = async (req, res) => {
             `SELECT u.email, ftp.food_truck_name FROM users u JOIN food_truck_profiles ftp ON u.user_id = ftp.owner_id WHERE ftp.profile_id = $1`,
             [profile_id]
         );
+        
+        // <<< ZMIANA: Najpierw zatwierdzamy transakcję w bazie danych
+        await client.query('COMMIT');
+        
+        // <<< ZMIANA: Dopiero po udanym zapisie wysyłamy e-mail
         const ownerEmail = ownerEmailQuery.rows[0]?.email;
         const foodTruckName = ownerEmailQuery.rows[0]?.food_truck_name;
 
@@ -60,13 +64,14 @@ exports.createBookingRequest = async (req, res) => {
                 subject: title,
                 html: finalHtml,
             };
+            // Wysyłka maila jest teraz poza transakcją
             await sgMail.send(msg);
         }
         
-        await client.query('COMMIT');
         res.status(201).json(newRequest);
 
     } catch (error) {
+        // Jeśli błąd wystąpił przed COMMIT, transakcja jest wycofywana
         await client.query('ROLLBACK');
         console.error('Błąd tworzenia rezerwacji:', error);
         res.status(500).json({ message: 'Błąd serwera podczas tworzenia rezerwacji.' });
@@ -75,7 +80,7 @@ exports.createBookingRequest = async (req, res) => {
     }
 };
 
-// Aktualizacja statusu rezerwacji
+// Aktualizacja statusu rezerwacji (bez zmian)
 exports.updateBookingStatus = async (req, res) => {
     console.log(`[Controller: updateBookingStatus] Aktualizacja statusu dla rezerwacji ID: ${req.params.requestId}`);
     const { requestId } = req.params;
@@ -137,8 +142,6 @@ exports.updateBookingStatus = async (req, res) => {
             }
         
         } else if (status === 'rejected_by_owner') {
-            // <<< 2. ZMIANA: Zamiast wysyłać prosty email, uruchamiamy logikę sugestii.
-            // Ona sama wyśle odpowiedniego, bardziej pomocnego maila.
             findAndSuggestAlternatives(requestId);
         }
 

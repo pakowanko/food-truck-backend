@@ -2,10 +2,12 @@ const pool = require('../db');
 const sgMail = require('@sendgrid/mail');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createBrandedEmail, sendPackagingReminderEmail } = require('../utils/emailTemplate');
+// <<< 1. NOWY IMPORT NASZEJ LOGIKI SUGESTII
+const { findAndSuggestAlternatives } = require('../utils/suggestionUtils');
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Tworzenie nowej rezerwacji
+// Tworzenie nowej rezerwacji (bez zmian)
 exports.createBookingRequest = async (req, res) => {
     console.log('[Controller: createBookingRequest] Uruchomiono tworzenie rezerwacji.');
     const { 
@@ -135,13 +137,9 @@ exports.updateBookingStatus = async (req, res) => {
             }
         
         } else if (status === 'rejected_by_owner') {
-            if (bookingRequest.organizer_email) {
-                const title = `Twoja rezerwacja dla ${bookingRequest.food_truck_name} została odrzucona`;
-                const body = `<p>Niestety, Twoja rezerwacja dla food trucka <strong>${bookingRequest.food_truck_name}</strong> na wydarzenie w dniu ${new Date(bookingRequest.event_start_date).toLocaleDateString()} została odrzucona przez właściciela.</p><p>Zachęcamy do wyszukania innego food trucka na naszej platformie!</p>`;
-                const finalHtml = createBrandedEmail(title, body);
-                const msg = { to: bookingRequest.organizer_email, from: { email: process.env.SENDER_EMAIL, name: 'BookTheFoodTruck' }, subject: title, html: finalHtml };
-                await sgMail.send(msg);
-            }
+            // <<< 2. ZMIANA: Zamiast wysyłać prosty email, uruchamiamy logikę sugestii.
+            // Ona sama wyśle odpowiedniego, bardziej pomocnego maila.
+            findAndSuggestAlternatives(requestId);
         }
 
         await client.query('COMMIT');
@@ -155,6 +153,7 @@ exports.updateBookingStatus = async (req, res) => {
     }
 };
 
+// Pozostałe funkcje (cancelBooking, getMyBookings) bez zmian
 exports.cancelBooking = async (req, res) => {
     const { requestId } = req.params;
     const { userId, user_type } = req.user;

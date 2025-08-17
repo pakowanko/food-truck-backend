@@ -156,12 +156,6 @@ async function sendCreateProfileReminderEmail(recipientEmail, token) {
     await sgMail.send(msg);
 }
 
-// --- NOWA FUNKCJA DO WYSYŁANIA POWIADOMIEŃ O REJESTRACJI ---
-
-/**
- * Wysyła powiadomienie o nowej rejestracji na wewnętrzny adres e-mail.
- * @param {object} userData - Obiekt z danymi nowo zarejestrowanego użytkownika.
- */
 async function sendNewUserAdminNotification(userData) {
     const adminEmail = 'pakowanko.info@gmail.com';
     const subject = `✅ Nowa rejestracja w BookTheFoodTruck: ${userData.email}`;
@@ -196,7 +190,42 @@ async function sendNewUserAdminNotification(userData) {
     }
 }
 
-// Eksportujemy wszystkie funkcje, w tym nową
+// --- NOWA FUNKCJA DO WYSYŁANIA SUGESTII ---
+async function sendSuggestionEmail(booking, alternatives) {
+    const title = 'Mamy alternatywy dla Twojej rezerwacji!';
+    
+    const alternativesHtml = alternatives.map(truck => `
+        <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; display: flex; align-items: center; gap: 15px;">
+            <img src="${truck.profile_image_url}" alt="${truck.food_truck_name}" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px;">
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 5px 0;">${truck.food_truck_name}</h3>
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #555;">${truck.food_truck_description.substring(0, 100)}...</p>
+                <a href="${APP_URL}/profile/${truck.profile_id}" style="display: inline-block; background-color: #D9534F; color: white; padding: 8px 12px; text-decoration: none; border-radius: 5px;">Zobacz profil</a>
+            </div>
+        </div>
+    `).join('');
+
+    const body = `
+        <p>Cześć ${booking.organizer_firstName},</p>
+        <p>Otrzymaliśmy informację, że rezerwacja dla food trucka <strong>${booking.rejectedTruckName}</strong> została odrzucona.</p>
+        <p>Ale nie martw się! Aby pomóc Ci szybko znaleźć zastępstwo, przygotowaliśmy listę innych, świetnych food trucków o podobnym profilu, które mogą być dostępne w terminie Twojego wydarzenia:</p>
+        <br>
+        ${alternativesHtml}
+        <p>Mamy nadzieję, że któraś z propozycji przypadnie Ci do gustu!</p>
+    `;
+
+    const finalHtml = createBrandedEmail(title, body);
+
+    const msg = {
+        to: booking.organizer_email,
+        from: { email: process.env.SENDER_EMAIL, name: 'Book The Food Truck' },
+        subject: `Propozycja alternatywnych food trucków dla Twojego wydarzenia`,
+        html: finalHtml,
+    };
+    await sgMail.send(msg);
+}
+
+// --- ZAKTUALIZOWANY EKSPORT ---
 module.exports = {
     createBrandedEmail,
     sendVerificationEmail,
@@ -204,5 +233,6 @@ module.exports = {
     sendGoogleWelcomeEmail,
     sendPackagingReminderEmail,
     sendCreateProfileReminderEmail,
-    sendNewUserAdminNotification
+    sendNewUserAdminNotification,
+    sendSuggestionEmail // <-- Dodajemy nową funkcję
 };

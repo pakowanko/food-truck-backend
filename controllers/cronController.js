@@ -1,7 +1,8 @@
 const pool = require('../db');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const jwt = require('jsonwebtoken'); // <-- WAŻNE: Dodajemy import JWT
-const { sendPackagingReminderEmail, sendCreateProfileReminderEmail } = require('../utils/emailTemplate');
+const jwt = require('jsonwebtoken');
+// <<< ZMIANA: Dodajemy import nowej funkcji mailowej
+const { sendPackagingReminderEmail, sendCreateProfileReminderEmail, sendBookingReminderEmail } = require('../utils/emailTemplate');
 const { PubSub } = require('@google-cloud/pubsub');
 
 const pubSubClient = new PubSub();
@@ -93,11 +94,10 @@ exports.generateDailyInvoices = async (req, res) => {
     }
 };
 
-// --- ZAKTUALIZOWANA FUNKCJA WYSYŁANIA PRZYPOMNIEŃ O PROFILU ---
+// Funkcja sendProfileCreationReminders pozostaje bez zmian
 exports.sendProfileCreationReminders = async (req, res) => {
     console.log('[Cron] Uruchomiono zadanie wysyłania przypomnień o utworzeniu profilu.');
     try {
-        // Zapytanie pozostaje bez zmian, pobiera wszystkich zweryfikowanych właścicieli bez profili
         const result = await pool.query(`
             SELECT u.*
             FROM users u
@@ -113,17 +113,11 @@ exports.sendProfileCreationReminders = async (req, res) => {
         }
 
         for (const user of result.rows) {
-            // Generujemy specjalny token JWT, który posłuży do automatycznego logowania
             const payload = { 
-                userId: user.user_id, 
-                email: user.email, 
-                user_type: user.user_type, 
-                role: user.role,
-                action: 'reminder_login' // Dobra praktyka, żeby wiedzieć do czego służy token
+                userId: user.user_id, email: user.email, user_type: user.user_type, 
+                role: user.role, action: 'reminder_login'
             };
             const reminderToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-            // Wywołujemy funkcję do wysyłania maila, przekazując email i nowo wygenerowany token
             await sendCreateProfileReminderEmail(user.email, reminderToken);
         }
 
@@ -139,7 +133,6 @@ exports.sendProfileCreationReminders = async (req, res) => {
 // Funkcja publishAllExistingProfiles pozostaje bez zmian
 exports.publishAllExistingProfiles = async (req, res) => {
     console.log('[Admin] Uruchomiono zadanie wysyłania zleceń dla istniejących profili.');
-    
     try {
         const profilesResult = await pool.query('SELECT * FROM food_truck_profiles');
         const profiles = profilesResult.rows;
@@ -150,7 +143,6 @@ exports.publishAllExistingProfiles = async (req, res) => {
         }
 
         console.log(`[Admin] Znaleziono ${profiles.length} profili. Rozpoczynanie wysyłania zleceń...`);
-
         let successCount = 0;
         let failureCount = 0;
 
@@ -178,5 +170,58 @@ exports.publishAllExistingProfiles = async (req, res) => {
     } catch (error) {
         console.error('[Admin] Krytyczny błąd podczas zadania publikacji:', error);
         res.status(500).send('Błąd serwera podczas zadania publikacji.');
+    }
+};
+
+// --- NOWA FUNKCJA DO WYSYŁANIA PRZYPOMNIEŃ O OCZEKUJĄCYCH REZERWACJACH ---
+exports.sendPendingBookingReminders = async (req, res) => {
+    console.log('[CRON] Uruchomiono zadanie wysyłania przypomnień o oczekujących rezerwacjach.');
+    try {
+        // Znajdź rezerwacje oczekujące na akceptację dłużej niż 24h
+        const query = `
+            SELECT
+                br.request_id,
+                br.event_start_date,
+                u_owner.email as owner_email,
+                u_organizer.first_name as organizer_first_name,
+                ftp.food_truck_name
+            FROM booking_requests br
+            JOIN food_truck_profiles ftp ON br.profile_id = ftp.profile_id
+            JOIN users u_owner ON ftp.owner_id = u_owner.user_id
+            JOIN users u_organizer ON br.organizer_id = u_organizer.user_id
+            WHERE br.status = 'pending_owner_approval'
+              AND br.created_at < NOW() - INTERVAL '24 hours';
+        `;
+        const { rows: pendingRequests } = await pool.query(query);
+
+        if (pendingRequests.length === 0) {
+            console.log('[CRON] Brak oczekujących rezerwacji do przypomnienia.');
+            return res.status(200).send('Brak rezerwacji do przypomnienia.');
+        }
+
+        // Grupuj rezerwacje per właściciel, aby wysłać jednego maila
+        const requestsByOwner = pendingRequests.reduce((acc, req) => {
+            if (!acc[req.owner_email]) {
+                acc[req.owner_email] = [];
+            }
+            acc[req.owner_email].push(req);
+            return acc;
+        }, {});
+
+        // Wyślij e-maile
+        let emailsSent = 0;
+        for (const ownerEmail in requestsByOwner) {
+            const requests = requestsByOwner[ownerEmail];
+            await sendBookingReminderEmail(ownerEmail, requests);
+            emailsSent++;
+        }
+
+        const summary = `Zadanie zakończone. Wysłano ${emailsSent} e-maili z przypomnieniami.`;
+        console.log(`[CRON] ${summary}`);
+        res.status(200).send(summary);
+
+    } catch (error) {
+        console.error('[CRON] Błąd podczas wysyłania przypomnień o rezerwacjach:', error);
+        res.status(500).send('Błąd serwera podczas wykonywania zadania cron.');
     }
 };

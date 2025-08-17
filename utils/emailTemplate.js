@@ -225,6 +225,42 @@ async function sendSuggestionEmail(booking, alternatives) {
     await sgMail.send(msg);
 }
 
+// --- NOWA FUNKCJA DO WYSYŁANIA PRZYPOMNIEŃ O REZERWACJACH ---
+async function sendBookingReminderEmail(ownerEmail, requests) {
+    const title = 'Masz oczekujące rezerwacje!';
+    
+    const requestsHtml = requests.map(req => `
+        <li style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+            <strong>Food Truck:</strong> ${req.food_truck_name}<br>
+            <strong>Organizator:</strong> ${req.organizer_first_name}<br>
+            <strong>Data wydarzenia:</strong> ${new Date(req.event_start_date).toLocaleDateString()}
+        </li>
+    `).join('');
+
+    const body = `
+        <p>Cześć,</p>
+        <p>Chcieliśmy przypomnieć, że wciąż masz oczekujące prośby o rezerwację na platformie Book The Food Truck. Klienci czekają na Twoją odpowiedź!</p>
+        <p><strong>Oto lista rezerwacji wymagających Twojej uwagi:</strong></p>
+        <ul style="list-style-type: none; padding: 0;">
+            ${requestsHtml}
+        </ul>
+        <p>Prosimy, zaloguj się na swoje konto, aby je zaakceptować lub odrzucić.</p>
+        <a href="${APP_URL}/dashboard" style="display: inline-block; padding: 12px 25px; background-color: #D9534F; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+            Przejdź do panelu
+        </a>
+    `;
+
+    const finalHtml = createBrandedEmail(title, body);
+
+    const msg = {
+        to: ownerEmail,
+        from: { email: process.env.SENDER_EMAIL, name: 'Book The Food Truck' },
+        subject: `Przypomnienie: Masz ${requests.length} oczekujące rezerwacje`,
+        html: finalHtml,
+    };
+    await sgMail.send(msg);
+}
+
 // --- ZAKTUALIZOWANY EKSPORT ---
 module.exports = {
     createBrandedEmail,
@@ -234,5 +270,6 @@ module.exports = {
     sendPackagingReminderEmail,
     sendCreateProfileReminderEmail,
     sendNewUserAdminNotification,
-    sendSuggestionEmail // <-- Dodajemy nową funkcję
+    sendSuggestionEmail,
+    sendBookingReminderEmail
 };

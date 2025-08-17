@@ -15,10 +15,11 @@ router.get('/bookings', adminController.getAllBookings);
 router.get('/conversations', adminController.getAllConversations);
 router.get('/conversations/:conversationId/messages', adminController.getConversationMessages);
 router.get('/users/:userId/profiles', adminController.getUserProfiles);
-
-// --- NOWA TRASA: Pobieranie pełnych danych profilu do edycji ---
-// Ta linia jest kluczowa, aby okno edycji mogło pobrać dane.
 router.get('/profiles/:profileId', adminController.getProfileForAdmin);
+
+// <<< POPRAWIONA LINIA PONIŻEJ
+// NOWA TRASA DO POBIERANIA SZCZEGÓŁÓW REZERWACJI
+router.get('/bookings/:requestId', adminController.getBookingById);
 
 // Trasy do aktualizacji i modyfikacji danych
 router.put('/users/:userId/toggle-block', adminController.toggleUserBlock);
@@ -27,10 +28,8 @@ router.put('/bookings/:requestId/packaging-status', adminController.updatePackag
 router.put('/bookings/:requestId/commission-status', adminController.updateCommissionStatus);
 router.put('/profiles/:profileId/details', adminController.updateProfileDetails);
 
-// --- NOWA TRASA: Usuwanie pojedynczego zdjęcia ---
-router.delete('/profiles/:profileId/photo', adminController.deleteProfilePhoto);
-
 // Trasy do usuwania danych
+router.delete('/profiles/:profileId/photo', adminController.deleteProfilePhoto);
 router.delete('/users/:userId', adminController.deleteUser);
 router.delete('/profiles/:profileId', adminController.deleteProfile);
 

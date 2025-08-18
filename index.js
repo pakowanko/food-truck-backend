@@ -76,6 +76,24 @@ app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');
 });
 
+// --- POCZĄTEK ZMIAN: SONDA STARTOWA (HEALTH CHECK) ---
+// Ten endpoint będzie używany przez Cloud Run, aby sprawdzić, czy aplikacja jest gotowa
+app.get('/health', async (req, res) => {
+  try {
+    // Wykonaj proste zapytanie, aby sprawdzić, czy połączenie z bazą danych działa
+    const client = await pool.connect();
+    client.release(); // Natychmiast zwolnij połączenie
+    console.log('[Health Check] Sonda startowa zakończona pomyślnie.');
+    res.status(200).send('ok');
+  } catch (err) {
+    // Jeśli połączenie z bazą danych nie powiedzie się, zwróć błąd
+    // Cloud Run spróbuje ponownie, dając bazie czas na "obudzenie się"
+    console.error('[Health Check] Sonda startowa nie powiodła się, baza danych niegotowa:', err.message);
+    res.status(503).send('db not ready'); 
+  }
+});
+// --- KONIEC ZMIAN ---
+
 // Logika Socket.IO
 io.on('connection', (socket) => {
   console.log('✅ Użytkownik połączył się z Socket.IO:', socket.id);
@@ -101,13 +119,10 @@ io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     const { conversation_id, sender_id, message_content } = data;
 
-    // <<< NOWY BLOK ZABEZPIECZAJĄCY
-    // Sprawdzamy, czy kluczowe dane zostały przesłane z frontendu
     if (!sender_id || !conversation_id) {
         console.error(`Błąd: Otrzymano próbę wysłania wiadomości bez sender_id lub conversation_id. Dane:`, data);
-        return; // Przerywamy wykonanie, aby uniknąć błędu bazy danych
+        return; 
     }
-    // <<< KONIEC BLOKU ZABEZPIECZAJĄCEGO
 
     const censoredMessage = censorContactInfo(message_content);
 

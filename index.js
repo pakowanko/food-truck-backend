@@ -65,7 +65,6 @@ app.use('/uploads', express.static(uploadsDir));
 app.use('/api/auth', authRoutes);
 app.use('/api/profiles', foodTruckProfileRoutes);
 app.use('/api/requests', bookingRequestRoutes);
-// <<< POPRAWKA: Ta linia została zakomentowana, aby zapobiec awarii serwera
 // app.use('/api/reviews', reviewRoutes); 
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/gus', gusRoutes);
@@ -77,7 +76,7 @@ app.get('/', (req, res) => {
   res.send('Backend for Food Truck Booking Platform is running!');
 });
 
-// Logika Socket.IO (bez zmian, jest poprawna)
+// Logika Socket.IO
 io.on('connection', (socket) => {
   console.log('✅ Użytkownik połączył się z Socket.IO:', socket.id);
 
@@ -101,6 +100,15 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', async (data) => {
     const { conversation_id, sender_id, message_content } = data;
+
+    // <<< NOWY BLOK ZABEZPIECZAJĄCY
+    // Sprawdzamy, czy kluczowe dane zostały przesłane z frontendu
+    if (!sender_id || !conversation_id) {
+        console.error(`Błąd: Otrzymano próbę wysłania wiadomości bez sender_id lub conversation_id. Dane:`, data);
+        return; // Przerywamy wykonanie, aby uniknąć błędu bazy danych
+    }
+    // <<< KONIEC BLOKU ZABEZPIECZAJĄCEGO
+
     const censoredMessage = censorContactInfo(message_content);
 
     try {

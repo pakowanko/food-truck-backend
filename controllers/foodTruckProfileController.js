@@ -38,44 +38,27 @@ async function geocode(locationString) {
             console.warn(`Nie udało się znaleźć współrzędnych dla lokalizacji: ${locationString}. Odpowiedź API: ${response.data.status}`);
             return { lat: null, lon: null };
         }
-    } catch (error) {        console.error('Błąd Geocoding API:', error.message);
+    } catch (error) {
+        console.error('Błąd Geocoding API:', error.message);
         throw error;
     }
 }
 
-// --- GŁÓWNA FUNKCJA WYSZUKIWANIA Z ZAKOMENTOWANĄ LOGIKĄ OCEN ---
+// Funkcja getAllProfiles (bez zmian, z zakomentowanymi ocenami)
 exports.getAllProfiles = async (req, res) => {
-    // Logika ocen jest tymczasowo wyłączona, ale zostawiamy 'min_rating' na przyszłość
     const { cuisine, postal_code, event_start_date, event_end_date, min_rating, long_term_rental } = req.query;
-
-    // --- ZMIANA: Zapytanie bez kolumn dotyczących ocen ---
     let query = `
         SELECT 
-            p.profile_id,
-            p.food_truck_name,
-            p.food_truck_description,
-            p.base_location,
-            p.operation_radius_km,
-            p.gallery_photo_urls,
-            p.profile_image_url,
-            p.offer,
+            p.profile_id, p.food_truck_name, p.food_truck_description, p.base_location,
+            p.operation_radius_km, p.gallery_photo_urls, p.profile_image_url, p.offer,
             p.long_term_rental_available
-            /* ---- ABY PRZYWRÓCIĆ OCENY, ODKOMENTUJ PONIŻSZE LINIE... ----
-            , COALESCE(AVG(r.rating), 0) as average_rating, 
-            COUNT(r.review_id) as review_count
-            */
+            /*, COALESCE(AVG(r.rating), 0) as average_rating, COUNT(r.review_id) as review_count */
     `;
     const values = [];
-
-    // --- ZMIANA: FROM bez JOIN z opiniami ---
     const fromClause = ` FROM food_truck_profiles p`;
-    /* ---- ...I ZASTĄP POWYŻSZĄ LINIĘ TĄ PONIŻEJ: ----
-    const fromClause = \` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id\`;
-    */
-
+    /* const fromClause = ` FROM food_truck_profiles p LEFT JOIN reviews r ON p.profile_id = r.profile_id`; */
     const whereClauses = [];
     let orderByClause = 'ORDER BY p.food_truck_name ASC';
-
     if (postal_code) {
         try {
             const { lat, lon } = await geocode(postal_code);
@@ -83,59 +66,23 @@ exports.getAllProfiles = async (req, res) => {
                 const lonPlaceholder = values.push(lon);
                 const latPlaceholder = values.push(lat);
                 const locationPoint = `ST_MakePoint($${lonPlaceholder}, $${latPlaceholder})::geography`;
-
                 query += `, ST_Distance(p.location, ${locationPoint}) / 1000 as distance`;
-                
-                whereClauses.push(`
-                    p.location IS NOT NULL AND
-                    p.operation_radius_km IS NOT NULL AND
-                    ST_DWithin(p.location, ${locationPoint}, p.operation_radius_km * 1000)
-                `);
+                whereClauses.push(`p.location IS NOT NULL AND p.operation_radius_km IS NOT NULL AND ST_DWithin(p.location, ${locationPoint}, p.operation_radius_km * 1000)`);
                 orderByClause = 'ORDER BY distance ASC';
             }
-        } catch (error) {
-            return res.status(400).json({ message: "Nieprawidłowy kod pocztowy." });
-        }
+        } catch (error) { return res.status(400).json({ message: "Nieprawidłowy kod pocztowy." }); }
     }
-
-    if (cuisine) {
-        values.push(cuisine);
-        whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`);
-    }
-
+    if (cuisine) { values.push(cuisine); whereClauses.push(`p.offer -> 'dishes' @> to_jsonb($${values.length}::text)`); }
     if (event_start_date && event_end_date) {
         values.push(event_start_date, event_end_date);
-        whereClauses.push(`
-            p.profile_id NOT IN (
-                SELECT br.profile_id FROM booking_requests br 
-                WHERE br.status = 'confirmed' AND 
-                (br.event_start_date, br.event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE)
-            )
-        `);
+        whereClauses.push(`p.profile_id NOT IN (SELECT br.profile_id FROM booking_requests br WHERE br.status = 'confirmed' AND (br.event_start_date, br.event_end_date) OVERLAPS ($${values.length - 1}::DATE, $${values.length}::DATE))`);
     }
-    
-    if (long_term_rental === 'true') {
-        whereClauses.push(`p.long_term_rental_available = TRUE`);
-    }
-
+    if (long_term_rental === 'true') { whereClauses.push(`p.long_term_rental_available = TRUE`); }
     query += fromClause;
-    if (whereClauses.length > 0) {
-        query += ' WHERE ' + whereClauses.join(' AND ');
-    }
-    
-    /* ---- ABY PRZYWRÓCIĆ OCENY, ODKOMENTUJ PONIŻSZE BLOKI KODU ----
-    // Grupujemy, aby umożliwić działanie funkcji agregujących (AVG, COUNT)
-    query += ' GROUP BY p.profile_id';
-    
-    // Dodajemy warunek minimalnej oceny (HAVING)
-    if (min_rating && parseFloat(min_rating) > 0) {
-        values.push(parseFloat(min_rating));
-        query += \` HAVING COALESCE(AVG(r.rating), 0) >= $${values.length}\`;
-    }
-    */
-    
+    if (whereClauses.length > 0) { query += ' WHERE ' + whereClauses.join(' AND '); }
+    /* query += ' GROUP BY p.profile_id'; */
+    /* if (min_rating && parseFloat(min_rating) > 0) { values.push(parseFloat(min_rating)); query += ` HAVING COALESCE(AVG(r.rating), 0) >= $${values.length}`; } */
     query += ` ${orderByClause}`;
-
     try {
         const profilesResult = await pool.query(query, values);
         res.json(profilesResult.rows);
@@ -145,6 +92,7 @@ exports.getAllProfiles = async (req, res) => {
     }
 };
 
+// <<< POPRAWIONA FUNKCJA TWORZENIA PROFILU
 exports.createProfile = async (req, res) => {
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;
     const ownerId = parseInt(req.user.userId, 10);
@@ -166,8 +114,15 @@ exports.createProfile = async (req, res) => {
         const { lat, lon } = await geocode(base_location);
         
         const newProfile = await pool.query(
-            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, gallery_photo_urls, profile_image_url, offer, long_term_rental_available, location) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, ST_MakePoint($7, $6)::geography) RETURNING *`,
-            [ownerId, food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm]
+            `INSERT INTO food_truck_profiles (owner_id, food_truck_name, food_truck_description, base_location, operation_radius_km, base_latitude, base_longitude, gallery_photo_urls, profile_image_url, offer, long_term_rental_available, location) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, ST_MakePoint($13, $12)::geography) RETURNING *`,
+            [
+                ownerId, food_truck_name, food_truck_description, base_location, 
+                parseInt(operation_radius_km) || null, 
+                lat, lon, // Parametry $6, $7
+                galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm,
+                lat, lon  // Parametry $12, $13 (przekazane ponownie)
+            ]
         );
 
         const newProfileData = newProfile.rows[0];
@@ -194,6 +149,7 @@ exports.createProfile = async (req, res) => {
     }
 };
 
+// <<< POPRAWIONA FUNKCJA AKTUALIZACJI PROFILU
 exports.updateProfile = async (req, res) => {
     const { profileId: profileIdParam } = req.params;
     let { food_truck_name, food_truck_description, base_location, operation_radius_km, offer, long_term_rental_available } = req.body;
@@ -218,8 +174,20 @@ exports.updateProfile = async (req, res) => {
         const { lat, lon } = await geocode(base_location);
 
         const updatedProfile = await pool.query(
-            `UPDATE food_truck_profiles SET food_truck_name = $1, food_truck_description = $2, base_location = $3, operation_radius_km = $4, base_latitude = $5, base_longitude = $6, gallery_photo_urls = $7, profile_image_url = $8, offer = $9, long_term_rental_available = $10, location = ST_MakePoint($6, $5)::geography WHERE profile_id = $11 RETURNING *`,
-            [food_truck_name, food_truck_description, base_location, parseInt(operation_radius_km) || null, lat, lon, galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm, profileId]
+            `UPDATE food_truck_profiles SET 
+                food_truck_name = $1, food_truck_description = $2, base_location = $3, 
+                operation_radius_km = $4, base_latitude = $5, base_longitude = $6, 
+                gallery_photo_urls = $7, profile_image_url = $8, offer = $9, 
+                long_term_rental_available = $10, location = ST_MakePoint($13, $12)::geography 
+             WHERE profile_id = $11 RETURNING *`,
+            [
+                food_truck_name, food_truck_description, base_location, 
+                parseInt(operation_radius_km) || null, 
+                lat, lon, // Parametry $5, $6
+                galleryPhotoUrls, galleryPhotoUrls[0] || null, offer, isLongTerm, 
+                profileId, // Parametr $11
+                lat, lon   // Parametry $12, $13 (przekazane ponownie)
+            ]
         );
         res.json(updatedProfile.rows[0]);
     } catch (error) {
@@ -228,6 +196,7 @@ exports.updateProfile = async (req, res) => {
     }
 };
 
+// Reszta funkcji bez zmian
 exports.getMyProfiles = async (req, res) => {
     const { userId } = req.user;
     if (!userId) {

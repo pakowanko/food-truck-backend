@@ -3,9 +3,13 @@ const { Pool } = require('pg');
 
 const dbConfig = {
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+
+  // --- NAJWAŻNIEJSZE ZMIANY ---
+  // Daje bazie danych 60 sekund na "obudzenie się" przy pierwszym połączeniu.
+  connectionTimeoutMillis: 60000, 
+  
+  // Zamyka nieużywane połączenia po 30 sekundach, co pozwala bazie ponownie zasnąć.
+  idleTimeoutMillis: 30000        
 };
 
 const pool = new Pool(dbConfig);

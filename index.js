@@ -52,7 +52,12 @@ const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ["GET", "POST"]
-  }
+  },
+  // --- DODAJ TEN BLOK ---
+  // Co 25 sekund serwer wyśle "ping" do klienta
+  pingInterval: 25000, 
+  // Jeśli klient nie odpowie "pong" w ciągu 20 sekund, serwer go rozłączy
+  pingTimeout: 20000    
 });
 
 const PORT = process.env.PORT || 8080;

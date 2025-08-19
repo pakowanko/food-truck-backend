@@ -1,21 +1,35 @@
-// db.js
+// db.js - WERSJA OSTATECZNA Z LENIWĄ INICJALIZACJĄ
+
 const { Pool } = require('pg');
+
+let pool; // Deklarujemy zmienną, ale jej nie inicjalizujemy
 
 const dbConfig = {
   connectionString: process.env.DATABASE_URL,
-
-  // --- NAJWAŻNIEJSZE ZMIANY ---
-  // Daje bazie danych 60 sekund na "obudzenie się" przy pierwszym połączeniu.
-  connectionTimeoutMillis: 60000, 
-  
-  // Zamyka nieużywane połączenia po 30 sekundach, co pozwala bazie ponownie zasnąć.
-  idleTimeoutMillis: 30000        
+  // Dajemy bazie 60 sekund na "obudzenie się" przy pierwszym połączeniu
+  connectionTimeoutMillis: 60000,
+  // Zamykamy nieużywane połączenia po 30 sekundach
+  idleTimeoutMillis: 30000
 };
 
-const pool = new Pool(dbConfig);
+// Funkcja, która tworzy pulę, jeśli jeszcze nie istnieje
+const getPool = () => {
+  if (!pool) {
+    console.log('Inicjalizacja puli połączeń...');
+    pool = new Pool(dbConfig);
 
-pool.query('SELECT version();')
-  .then(res => console.log('✅ Pomyślnie połączono z bazą danych. Wersja:', res.rows[0].version))
-  .catch(err => console.error('!!! KRYTYCZNY BŁĄD POŁĄCZENIA Z BAZĄ DANYCH:', err));
+    // Dodajemy nasłuchiwanie na błędy, aby wiedzieć, co się dzieje w puli
+    pool.on('error', (err, client) => {
+      console.error('Nieoczekiwany błąd w puli połączeń', err);
+      process.exit(-1);
+    });
+  }
+  return pool;
+};
 
-module.exports = pool;
+// Eksportujemy obiekt, który używa naszej funkcji 'getPool'
+// Dzięki temu reszta aplikacji nie musi być zmieniana
+module.exports = {
+  query: (text, params) => getPool().query(text, params),
+  connect: () => getPool().connect(),
+};
